@@ -1,0 +1,19 @@
+# 仅当你的构建环境无法解析 vanity import 路径(如 golang.org/x/*、gorm.io/*
+# 被防火墙/白名单拦截)时,才把下面这段 replace 追加到 go.mod 末尾。
+# 正常的 VPS / 开发机不需要它 —— 直接 `go mod tidy` 即可拉取全部依赖。
+#
+# 注意:版本需与 go.mod 的 require 对齐;此清单针对本仓库当前依赖图。
+
+replace (
+	golang.org/x/arch => github.com/golang/arch v0.12.0
+	golang.org/x/crypto => github.com/golang/crypto v0.31.0
+	golang.org/x/net => github.com/golang/net v0.33.0
+	golang.org/x/sync => github.com/golang/sync v0.10.0
+	golang.org/x/sys => github.com/golang/sys v0.28.0
+	golang.org/x/text => github.com/golang/text v0.21.0
+	google.golang.org/protobuf => github.com/protocolbuffers/protobuf-go v1.35.2
+	gopkg.in/check.v1 => github.com/go-check/check v0.0.0-20201130134442-10cb98267c6c
+	gopkg.in/yaml.v3 => github.com/go-yaml/yaml v0.0.0-20220527083530-f6f7691b1fde
+	gorm.io/gorm => github.com/go-gorm/gorm v1.25.12
+	nullprogram.com/x/optparse => github.com/skeeto/optparse-go v1.0.0
+)

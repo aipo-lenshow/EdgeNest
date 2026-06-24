@@ -1,0 +1,15 @@
+[Unit]
+Description=EdgeNest proxy node panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/edgenest --role standalone --listen [::]:2087 --data-dir /etc/edgenest
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+# EdgeNest manages the sing-box/xray subprocesses itself, so no extra unit needed.
+
+[Install]
+WantedBy=multi-user.target

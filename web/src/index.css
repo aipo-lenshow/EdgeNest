@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default skin is dark — keep the v0.01 look. The `.dark` class on <html>
+   keeps tailwind dark: variants active when the user picks `dark` or `auto`
+   resolves to dark. When the user picks `light` we strip `.dark` and apply
+   the light palette below. */
+
+:root { color-scheme: dark; }
+body {
+  margin: 0;
+  background: #0b0e14;
+  color: #e6e6e6;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+html:not(.dark) {
+  color-scheme: light;
+}
+html:not(.dark) body {
+  /* A clean cool-grey page so the white cards below read as distinct panels —
+     a near-white page made everything blend ("low contrast / washed out"). */
+  background: #eef1f5;
+  color: #0f1722;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Light-theme layer. Components were authored against the dark skin and
+   hard-code utility colours (text-white/40, bg-white/5, bg-black/30, …) with
+   no dark: variant. Rather than sweep hundreds of call sites, this layer
+   remaps those utilities to a cohesive, WCAG-AA light palette whenever .dark
+   is NOT on <html>. Everything here is scoped under html:not(.dark), so the
+   dark theme is mathematically untouched.
+
+   Palette (text on white card, all ≥ AA 4.5:1):
+     primary  #111827   strong  #1f2937   label #374151
+     muted    #4b5563   faint   #6b7280
+   ───────────────────────────────────────────────────────────────────────── */
+html:not(.dark) {
+  /* ── Named-scale surfaces → white-ish panels. ───────────────────────────── */
+  .bg-slate-900, .bg-gray-900, .bg-neutral-900, .bg-zinc-900, .bg-black { background-color: #ffffff !important; }
+  .bg-slate-900\/60 { background-color: rgba(255,255,255,0.85) !important; }
+  .bg-slate-900\/50 { background-color: rgba(255,255,255,0.80) !important; }
+  .bg-slate-900\/40 { background-color: rgba(255,255,255,0.75) !important; }
+  .bg-slate-800, .bg-gray-800, .bg-neutral-800, .bg-zinc-800 { background-color: #f1f5f9 !important; }
+  .bg-slate-800\/60 { background-color: rgba(241,245,249,0.85) !important; }
+  .bg-slate-800\/50 { background-color: rgba(241,245,249,0.80) !important; }
+  .bg-slate-800\/40 { background-color: rgba(241,245,249,0.70) !important; }
+  .bg-slate-700 { background-color: #e2e8f0 !important; }
+  .bg-slate-950 { background-color: #f8fafc !important; }
+
+  /* ── Named-scale text → dark-on-light. ──────────────────────────────────── */
+  .text-slate-100, .text-slate-200, .text-white, .text-gray-100, .text-gray-200,
+  .text-neutral-100, .text-neutral-200, .text-zinc-100, .text-zinc-200 { color: #111827 !important; }
+  .text-slate-300, .text-gray-300, .text-neutral-300, .text-zinc-300 { color: #1f2937 !important; }
+  .text-slate-400, .text-gray-400, .text-neutral-400, .text-zinc-400 { color: #475569 !important; }
+  .text-slate-500, .text-gray-500, .text-neutral-500, .text-zinc-500 { color: #64748b !important; }
+
+  /* ── Named-scale borders + dividers. ────────────────────────────────────── */
+  .border-slate-700, .border-slate-800, .border-slate-900,
+  .border-gray-700, .border-gray-800,
+  .border-neutral-700, .border-neutral-800,
+  .border-zinc-700, .border-zinc-800 { border-color: #e2e8f0 !important; }
+  .border-slate-600, .border-gray-600 { border-color: #cbd5e1 !important; }
+  .divide-slate-700 > * + *, .divide-slate-800 > * + * { border-color: #e2e8f0 !important; }
+  .placeholder\:text-slate-500::placeholder,
+  .placeholder\:text-slate-400::placeholder { color: #94a3b8 !important; }
+
+  /* ── Opacity-based white/black utilities — the bulk of the dark skin. ─────── */
+
+  /* Muted text scale. */
+  .text-white\/90, .text-white\/85, .text-white\/80 { color: #111827 !important; }
+  .text-white\/70, .text-white\/65 { color: #1f2937 !important; }
+  .text-white\/60, .text-white\/55 { color: #374151 !important; }
+  .text-white\/50, .text-white\/45, .text-white\/40, .text-white\/35 { color: #4b5563 !important; }
+  .text-white\/30, .text-white\/20, .text-white\/15 { color: #6b7280 !important; }
+
+  /* Hairline borders. */
+  .border-white\/5  { border-color: rgba(15,23,42,0.10) !important; }
+  .border-white\/10 { border-color: rgba(15,23,42,0.14) !important; }
+  .border-white\/15 { border-color: rgba(15,23,42,0.20) !important; }
+  .border-white\/20 { border-color: rgba(15,23,42,0.26) !important; }
+  .border-white\/30 { border-color: rgba(15,23,42,0.36) !important; }
+  .focus\:border-white\/30:focus { border-color: rgba(16,185,129,0.7) !important; }
+  .divide-white\/5 > * + *, .divide-white\/10 > * + * { border-color: rgba(15,23,42,0.12) !important; }
+
+  /* Card / panel surfaces → solid white with a soft, consistent elevation so
+     they read as distinct panels on the grey page. */
+  .bg-white\/\[0\.02\], .bg-white\/\[0\.03\], .bg-white\/\[0\.04\], .bg-white\/\[0\.06\] {
+    background-color: #ffffff !important;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.07) !important;
+  }
+  .bg-white\/5  { background-color: rgba(15,23,42,0.05) !important; }
+  .bg-white\/10 { background-color: rgba(15,23,42,0.08) !important; }
+  .bg-white\/15 { background-color: rgba(15,23,42,0.10) !important; }
+  .bg-white\/80 { background-color: #e2e8f0 !important; }
+  .hover\:bg-white\/5:hover  { background-color: rgba(15,23,42,0.05) !important; }
+  .hover\:bg-white\/10:hover { background-color: rgba(15,23,42,0.09) !important; }
+
+  /* Dark tints used as fields / code boxes → faint light fill. The modal scrim
+     (bg-black/50) is intentionally left dark so it still dims the page. */
+  .bg-black\/20, .bg-black\/30, .bg-black\/40 { background-color: rgba(15,23,42,0.04) !important; }
+  .bg-\[\#10131a\] { background-color: #ffffff !important; }
+
+  /* Form controls get a crisp white fill + visible border regardless of the
+     utility classes the component happened to use — the dark-skin bg-black/30
+     fields were nearly invisible on white. */
+  input:not([type="checkbox"]):not([type="radio"]), textarea, select {
+    background-color: #ffffff !important;
+    border-color: rgba(15,23,42,0.18) !important;
+    color-scheme: light;
+  }
+  input:focus, textarea:focus, select:focus { border-color: rgba(16,185,129,0.7) !important; }
+
+  /* Accent TEXT (-300/-400 bright-on-dark) → -700-ish dark-on-light. Fixes
+     badge text, code, links, status strings. */
+  .text-emerald-300, .text-emerald-400 { color: #047857 !important; }
+  .text-amber-300, .text-amber-400 { color: #b45309 !important; }
+  .text-red-300, .text-red-400 { color: #b91c1c !important; }
+  .text-sky-300, .text-sky-400 { color: #0369a1 !important; }
+  .text-blue-300, .text-blue-400 { color: #1d4ed8 !important; }
+  .text-violet-300, .text-violet-400 { color: #6d28d9 !important; }
+  .text-pink-300, .text-pink-400 { color: #be185d !important; }
+
+  /* Accent TINT backgrounds (status boxes / outline badges) → gentle light
+     tints that look intentional on white instead of muddy. */
+  .bg-emerald-500\/25, .bg-emerald-500\/20, .bg-emerald-500\/10,
+  .bg-emerald-500\/\[0\.06\] { background-color: rgba(16,185,129,0.12) !important; }
+  .bg-amber-500\/25, .bg-amber-500\/20, .bg-amber-500\/10,
+  .bg-amber-500\/\[0\.06\] { background-color: rgba(245,158,11,0.14) !important; }
+  .bg-red-500\/25, .bg-red-500\/20, .bg-red-500\/10 { background-color: rgba(239,68,68,0.12) !important; }
+  .bg-sky-500\/25, .bg-sky-500\/20, .bg-sky-500\/10 { background-color: rgba(14,165,233,0.12) !important; }
+
+  /* CRITICAL: white text sitting ON a saturated colour fill (danger button,
+     solid success/warn/info badges) must STAY white — the blanket .text-white
+     darkening above would otherwise put dark text on red/green/amber pills.
+     Compound selectors out-specify the single-class rule. */
+  .text-white.bg-emerald-500, .text-white.bg-red-500, .text-white.bg-red-500\/80,
+  .text-white.bg-amber-500, .text-white.bg-sky-500,
+  .bg-emerald-500 .text-white, .bg-red-500 .text-white { color: #ffffff !important; }
+
+  /* Light-mode scrollbar polish. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,0.30); }
+  ::-webkit-scrollbar-track { background: transparent; }
+}
