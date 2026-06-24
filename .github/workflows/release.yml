@@ -1,0 +1,53 @@
+# GitHub Release workflow.
+#
+# Triggered by pushing a tag matching v*.* (e.g. v0.02.0530). Builds the
+# embedded front-end + cross-compiles linux/amd64 + linux/arm64, packages each
+# as a tar.gz with SHA256SUMS, and attaches them to the GitHub Release for the
+# tag. install.sh tries these prebuilt artifacts first (saves ~3 minutes of
+# Go + npm compile per VPS).
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Derive version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release artifacts
+        run: make release VERSION=${{ steps.ver.outputs.version }}
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/edgenest-${{ steps.ver.outputs.version }}-linux-amd64.tar.gz
+            dist/edgenest-${{ steps.ver.outputs.version }}-linux-arm64.tar.gz
+            dist/SHA256SUMS
+          draft: false
+          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
