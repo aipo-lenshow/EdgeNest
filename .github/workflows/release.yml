@@ -1,11 +1,24 @@
 # GitHub Release workflow.
 #
-# Triggered by pushing a tag matching v*.* (e.g. v0.02.0530). Builds the
-# embedded front-end + cross-compiles linux/amd64 + linux/arm64, packages each
-# as a tar.gz with SHA256SUMS, and attaches them to the GitHub Release for the
-# tag. install.sh tries these prebuilt artifacts first (saves ~3 minutes of
-# Go + npm compile per VPS).
-
+# Triggered by pushing a tag matching v* (e.g. v1.13.0625). Builds EVERY release
+# asset via scripts/make-release-assets.sh — the single source of truth for what
+# a release ships — and attaches them to the GitHub Release for the tag:
+#
+#   edgenest-<ver>-linux-amd64.tar.gz                     (source + bin/edgenest + bin/sing-box)
+#   edgenest-<ver>-linux-arm64.tar.gz
+#   sing-box-<sbver>-with_v2ray_api-linux-amd64.tar.gz    (standalone engine asset)
+#   sing-box-<sbver>-with_v2ray_api-linux-arm64.tar.gz
+#   SHA256SUMS
+#
+# WHY the standalone sing-box assets matter (do NOT drop them again): install.sh
+# resolves sing-box via a 4-tier fallback; tier 3 (try_release_singbox) downloads
+# `sing-box-<sbver>-with_v2ray_api-linux-<arch>.tar.gz` from THIS release. If the
+# release omits it, a pure `git clone` install on a fresh VPS falls all the way to
+# an on-box source build (Go + compile, minutes; OOMs on <1GB-RAM boxes). EdgeNest
+# needs sing-box built WITH `with_v2ray_api` (per-user quota reads its v2ray_api
+# StatsService; the official binary omits it), so the official asset is never a
+# substitute. The earlier CI only uploaded the two edgenest tarballs + SHA256SUMS
+# and these had to be patched in by hand after every release — now CI emits all 5.
 name: release
 
 on:
@@ -22,10 +35,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Go floor: edgenest go.mod is `go 1.26`; sing-box v1.13.13 go.mod requires
+      # >= 1.24.7. Pin to install.sh's GO_VERSION (1.26.0) so BOTH build natively
+      # without relying on GOTOOLCHAIN auto-download. Bump in lockstep with
+      # install.sh GO_VERSION / go.mod.
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26.0'
           cache: true
 
       - name: Setup Node
@@ -39,8 +56,24 @@ jobs:
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build release artifacts
-        run: make release VERSION=${{ steps.ver.outputs.version }}
+      # make-release-assets.sh + make-deploy-tarball.sh both read the version from
+      # Makefile. Fail loudly if a tag was pushed without bumping the Makefile
+      # version sync point — otherwise the assets would be named after the stale
+      # Makefile version and install.sh (whose URL uses the bumped EDGENEST_VERSION)
+      # would 404. This is the guard that keeps a forgotten bump from shipping.
+      - name: Verify Makefile VERSION matches the tag
+        run: |
+          mk=$(grep -E '^VERSION' Makefile | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ "$mk" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "::error::Makefile VERSION ($mk) != tag (${{ steps.ver.outputs.version }}). Bump the 5 version sync points before tagging." >&2
+            exit 1
+          fi
+
+      # Builds all 5 assets into dist/ (edgenest ×2 arch, standalone sing-box ×2
+      # arch, SHA256SUMS). Cross-compiles via CGO_ENABLED=0; builds the custom
+      # sing-box from its official tagged source (build-singbox.sh).
+      - name: Build all release assets
+        run: bash scripts/make-release-assets.sh
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -48,6 +81,8 @@ jobs:
           files: |
             dist/edgenest-${{ steps.ver.outputs.version }}-linux-amd64.tar.gz
             dist/edgenest-${{ steps.ver.outputs.version }}-linux-arm64.tar.gz
+            dist/sing-box-*-with_v2ray_api-linux-amd64.tar.gz
+            dist/sing-box-*-with_v2ray_api-linux-arm64.tar.gz
             dist/SHA256SUMS
           draft: false
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}

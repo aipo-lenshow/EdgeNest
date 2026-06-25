@@ -102,6 +102,14 @@ func (r *Runner) loop(ctx context.Context) {
 				r.lastCmdLang = lang
 			}
 		}
+		// If an upgrade just finished, post the result to the admins. Checked every
+		// iteration rather than once at startup: the installer restarts this
+		// service — and thus this bot — *before* upgrade.sh writes
+		// upgrade_notify_pending (the flag is set only after the post-install health
+		// check), so a one-shot check at startup races ahead of the flag and never
+		// fires. The flag is cleared the first time it's seen, so this still
+		// announces exactly once.
+		r.announceUpgradeIfPending(ctx, token)
 		updates, maxID, err := notify.GetUpdates(ctx, token, r.offset, longPollSec)
 		if err != nil {
 			if sleep(ctx, 3*time.Second) {
@@ -173,6 +181,13 @@ func (r *Runner) cmdSummary(ctx context.Context, lang string) string {
 	if err != nil {
 		return tr(lang, "⚠️ 无法生成概览: ", "⚠️ Could not build summary: ") + err.Error()
 	}
+	// Append the same live "newer version available" line the other commands
+	// show. This is the on-demand /summary path only; the scheduled daily digest
+	// (notifyrunner.buildSummary) is a separate code path and stays untouched, so
+	// this adds no GitHub call to the periodic push.
+	if upd := r.updateLine(lang); upd != "" {
+		text = strings.TrimRight(text, "\n") + "\n" + strings.TrimLeft(upd, " ")
+	}
 	return text
 }
 
@@ -224,6 +239,8 @@ func (r *Runner) handleCommand(ctx context.Context, token string, chatID int64, 
 		r.reply(ctx, token, chatID, r.cmdReset(ctx, lang, arg))
 	case "enforce":
 		r.reply(ctx, token, chatID, r.cmdEnforce(ctx, lang))
+	case "upgrade":
+		r.cmdUpgrade(ctx, token, chatID, lang)
 	case "create":
 		r.cmdCreatePrompt(ctx, token, chatID, lang, arg)
 	case "delete":
@@ -275,6 +292,8 @@ func canonicalCmd(tok, arg string) string {
 		return "reset"
 	case "/enforce", "/执行", "/强制":
 		return "enforce"
+	case "/upgrade", "/升级":
+		return "upgrade"
 	case "/create", "/创建", "/新建":
 		return "create"
 	case "/delete", "/删除":
@@ -317,6 +336,7 @@ func botCommands(lang string) []notify.BotCommand {
 		{Command: "create", Description: tr(lang, "新建用户(需确认)", "New user (confirm)")},
 		{Command: "delete", Description: tr(lang, "删除用户(需确认)", "Delete user (confirm)")},
 		{Command: "enforce", Description: tr(lang, "立即检查配额/到期", "Run quota/expiry check")},
+		{Command: "upgrade", Description: tr(lang, "升级到最新稳定版", "Upgrade to latest stable")},
 		{Command: "help", Description: tr(lang, "命令菜单", "Command menu")},
 	}
 }
@@ -337,6 +357,9 @@ func menuButtons(lang string) [][][2]string {
 		{{tr(lang, "🔄 重置", "🔄 Reset"), "act:reset"}, {tr(lang, "🔗 订阅", "🔗 Sub"), "act:sub"}},
 		{{tr(lang, "➕ 创建", "➕ Create"), "act:create"}, {tr(lang, "🗑 删除", "🗑 Delete"), "act:delete"}},
 		{{tr(lang, "⚡ 立即检查", "⚡ Run check"), "cmd:enforce"}, {tr(lang, "📖 命令语法", "📖 Syntax"), "cmd:cmdref"}},
+		// Tapping checks for a newer stable release (live) and, if one exists,
+		// starts the self-upgrade — same as the /upgrade command. Admin-only.
+		{{tr(lang, "🆙 检查更新 / 升级", "🆙 Check & upgrade"), "cmd:upgrade"}},
 	}
 }
 
@@ -401,6 +424,13 @@ func (r *Runner) handleCallback(ctx context.Context, token string, chatID, messa
 		r.reply(ctx, token, chatID, r.cmdNode(lang))
 	case "enforce":
 		r.reply(ctx, token, chatID, r.cmdEnforce(ctx, lang))
+	case "upgrade":
+		// Button path: check live, then ask for confirmation (a tap shouldn't
+		// kick off a panel-restarting upgrade by accident). The typed /upgrade
+		// command stays direct.
+		r.cmdUpgradeCheck(ctx, token, chatID, lang)
+	case "doupgrade":
+		r.cmdUpgrade(ctx, token, chatID, lang)
 	case "cmdref":
 		r.reply(ctx, token, chatID, cmdRef(lang))
 	case "help":
@@ -447,7 +477,10 @@ func cmdRef(lang string) string {
 			"/创建 [email] [配额] [天数] — 新建用户(点确认后生效)",
 			"/删除 &lt;email&gt; — 删除用户及其订阅(点确认后生效)",
 			"",
-			"<i>英文命令同样可用:/status /users /user /top /traffic /node /sub /enable /disable /quota /expire /reset /enforce /create /delete</i>",
+			"<b>系统</b>",
+			"/升级 — 检查并升级到最新稳定版(面板会短暂重启;失败自动回滚)",
+			"",
+			"<i>英文命令同样可用:/status /users /user /top /traffic /node /sub /enable /disable /quota /expire /reset /enforce /create /delete /upgrade</i>",
 		}, "\n")
 	}
 	return strings.Join([]string{
@@ -472,6 +505,9 @@ func cmdRef(lang string) string {
 		"/enforce — run the quota/expiry check now",
 		"/create [email] [quota] [days] — new user (effective after you tap confirm)",
 		"/delete &lt;email&gt; — remove a user and its subscriptions (after confirm)",
+		"",
+		"<b>System</b>",
+		"/upgrade — check for and install the latest stable (the panel restarts briefly; auto-rollback on failure)",
 	}, "\n")
 }
 
@@ -500,10 +536,14 @@ func (r *Runner) helpText(lang string) string {
 	}, "\n")
 }
 
-// updateLine returns a one-line "newer version available" suffix when the
-// update-check cache shows EdgeNest is behind, else "". Reads cache only.
+// updateLine returns a one-line "newer version available" suffix when EdgeNest
+// is behind the latest release, else "". Checks GitHub live (StatusLive) on each
+// command so the operator sees a release the moment it ships, rather than waiting
+// up to an hour for the passive cache; it falls back to the cache on a network
+// failure. One live check per command invocation is acceptable — these are
+// operator-typed commands, not a hot loop.
 func (r *Runner) updateLine(lang string) string {
-	latest, available := updatecheck.Status(r.store, digest.AppVersion)
+	latest, available := updatecheck.StatusLive(r.store, digest.AppVersion)
 	if !available {
 		return ""
 	}

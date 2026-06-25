@@ -27,7 +27,7 @@ func TestBuildInboundSettings_FullProtocolMatrix(t *testing.T) {
 			advanced: map[string]any{},
 			expect: expect{
 				mustHave: map[string]any{
-					"sni":                "www.microsoft.com",
+					"sni":                "www.apple.com",
 					"flow":               "xtls-rprx-vision",
 					"server_port_target": 443,
 				},

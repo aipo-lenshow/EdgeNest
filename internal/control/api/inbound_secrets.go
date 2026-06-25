@@ -57,7 +57,7 @@ func autofillInboundSettings(typ string, s, existing map[string]any) (map[string
 			s["short_ids"] = []any{sid}
 		}
 		if !meaningful(s["sni"]) {
-			s["sni"] = "www.microsoft.com"
+			s["sni"] = "www.apple.com"
 		}
 		if !meaningful(s["server_port_target"]) {
 			s["server_port_target"] = 443
@@ -88,7 +88,7 @@ func autofillInboundSettings(typ string, s, existing map[string]any) (map[string
 				s["short_ids"] = []any{sid}
 			}
 			if !meaningful(s["sni"]) {
-				s["sni"] = "www.microsoft.com"
+				s["sni"] = "www.apple.com"
 			}
 		}
 		if !meaningful(s["xhttp_path"]) {

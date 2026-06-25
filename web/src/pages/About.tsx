@@ -1,7 +1,8 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Layout from "../components/Layout";
-import { Card, PageHeader } from "../components/ui";
+import { Button, Card, ConfirmDialog, PageHeader } from "../components/ui";
 import { BrandLogo, GithubIcon } from "../components/icons";
 import { api, call } from "../api/client";
 import { APP_VERSION_LABEL } from "../lib/version";
@@ -12,6 +13,12 @@ interface HealthInfo {
   version: string;
   latest_version: string;
   update_available: boolean;
+}
+
+interface UpgradeStatus {
+  state: string; // idle | running | success | rolledback | manual
+  from?: string;
+  to?: string;
 }
 
 interface FeatureItem {
@@ -60,6 +67,8 @@ export default function AboutPage() {
       <PageHeader title={t("about.title")} subtitle={t("about.subtitle")} />
 
       <div className="grid gap-6">
+        <UpgradeSection health={health} />
+
         <Card title={t("about.title")}>
           <div className="grid gap-4">
             <div className="flex items-center gap-4">
@@ -69,6 +78,9 @@ export default function AboutPage() {
                 <span className="text-xs uppercase tracking-wide text-white/40">Lite</span>
                 <span className="text-xs text-white/40">{APP_VERSION_LABEL}</span>
                 {updateBadge}
+              </div>
+              <div className="ml-auto shrink-0">
+                <CheckNowButton />
               </div>
             </div>
 
@@ -138,6 +150,139 @@ export default function AboutPage() {
         </Card>
       </div>
     </Layout>
+  );
+}
+
+// CheckNowButton forces a live GitHub latest-release lookup (GET /version/check
+// → updatecheck.StatusLive) instead of waiting up to 6h for the passive cache to
+// refresh — the reason a panel that started before a release was published would
+// otherwise never surface the update. On success it invalidates the cached
+// health query, so the version badge, the UpgradeSection, and the sidebar dot all
+// re-render from the fresh result.
+function CheckNowButton() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [upToDate, setUpToDate] = useState(false);
+
+  const check = useMutation({
+    mutationFn: () => call<HealthInfo>(api.get("/version/check")),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ["health"] });
+      setUpToDate(!data.update_available);
+    },
+  });
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="ghost"
+        onClick={() => {
+          setUpToDate(false);
+          check.mutate();
+        }}
+        disabled={check.isPending}
+      >
+        {check.isPending ? t("about.checkChecking") : t("about.checkNow")}
+      </Button>
+      {upToDate && !check.isPending && (
+        <span className="text-xs text-white/50">{t("about.checkLatest")}</span>
+      )}
+      {check.isError && (
+        <span className="text-xs text-rose-300">{t("about.checkError")}</span>
+      )}
+    </div>
+  );
+}
+
+// UpgradeSection shows a one-click "upgrade to latest stable" card when the
+// periodic check found a newer release. The upgrade runs detached on the server
+// (it outlives the panel restart it triggers); we poll /upgrade/status — which
+// fails transiently while the panel restarts, then returns the final state.
+function UpgradeSection({ health }: { health?: HealthInfo }) {
+  const { t } = useTranslation();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [started, setStarted] = useState(false);
+
+  const status = useQuery({
+    queryKey: ["upgrade-status"],
+    queryFn: () => call<UpgradeStatus>(api.get("/upgrade/status")),
+    enabled: started,
+    refetchInterval: started ? 4000 : false,
+    retry: false,
+  });
+
+  const upgrade = useMutation({
+    mutationFn: () => call<{ started: boolean }>(api.post("/upgrade", {})),
+    onSuccess: () => setStarted(true),
+  });
+
+  const state = status.data?.state ?? "";
+  // The version label is baked into the JS bundle at build time, so an in-place
+  // upgrade leaves the running page showing the OLD version even though the
+  // service is now new. Once the upgrade reaches "success" the new service has
+  // health-gated up, so a full reload pulls the new bundle (and the new version
+  // label) automatically — the operator no longer has to refresh by hand. The
+  // small delay lets the success message render first.
+  useEffect(() => {
+    if (state !== "success") return;
+    const id = setTimeout(() => window.location.reload(), 2500);
+    return () => clearTimeout(id);
+  }, [state]);
+
+  if (!health?.update_available || !health.latest_version) return null;
+
+  const done = state === "success" || state === "rolledback" || state === "manual";
+  if (done) {
+    const cls =
+      state === "success"
+        ? "border-emerald-400/60 bg-emerald-500/[0.06] text-emerald-100"
+        : "border-amber-400/60 bg-amber-500/[0.06] text-amber-100";
+    const msg =
+      state === "success"
+        ? t("about.upgradeDone")
+        : state === "rolledback"
+          ? t("about.upgradeFailed")
+          : t("about.upgradeManual");
+    return (
+      <Card title={t("about.upgradeTitle")}>
+        <div className={`rounded-xl border-l-2 px-4 py-3 text-sm ${cls}`}>{msg}</div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card title={t("about.upgradeTitle")}>
+      <div className="flex flex-wrap items-center gap-3">
+        {started ? (
+          <p className="text-sm text-amber-200">{t("about.upgradeRunning")}</p>
+        ) : (
+          <>
+            <Button variant="primary" onClick={() => setConfirmOpen(true)} disabled={upgrade.isPending}>
+              {t("about.upgradeButton", { version: health.latest_version })}
+            </Button>
+            {upgrade.isError && (
+              <span className="text-sm text-rose-300">
+                {t("about.upgradeError", { error: (upgrade.error as Error).message })}
+              </span>
+            )}
+          </>
+        )}
+      </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title={t("about.upgradeConfirmTitle")}
+        body={t("about.upgradeConfirmBody", { version: health.latest_version })}
+        variant="default"
+        confirmLabel={t("about.upgradeConfirmBtn")}
+        cancelLabel={t("about.upgradeCancel")}
+        busy={upgrade.isPending}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          upgrade.mutate();
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </Card>
   );
 }
 

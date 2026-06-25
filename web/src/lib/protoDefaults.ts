@@ -32,7 +32,7 @@ export function randomPortFor(proto: string): number {
 // `advanced` to POST /inbounds. Server-side autofill mints secrets and
 // everything else not specified here.
 export const PROTO_ADVANCED_DEFAULTS: Record<string, Record<string, any>> = {
-  vless: { sni: "www.microsoft.com", server_port_target: 443 },
+  vless: { sni: "www.apple.com", server_port_target: 443 },
   hysteria2: { obfs: true, up_mbps: 100, down_mbps: 500, sni: "www.bing.com" },
   trojan: { sni: "www.bing.com", acme_managed: false },
   shadowsocks: { method: "2022-blake3-aes-128-gcm" },
@@ -44,7 +44,7 @@ export const PROTO_ADVANCED_DEFAULTS: Record<string, Record<string, any>> = {
   anytls: { sni: "www.bing.com", acme_managed: false },
   "vless-xhttp": {
     security: "reality",
-    sni: "www.microsoft.com",
+    sni: "www.apple.com",
     xhttp_path: "/xhttp",
     xhttp_host: "",
   },

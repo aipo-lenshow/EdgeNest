@@ -128,7 +128,7 @@ type CompleteRequest struct {
 
 	// VLESS-Reality params.
 	VLESSPort   int    `json:"vless_port"`   // default 8443
-	VLESSDomain string `json:"vless_domain"` // SNI camouflage, default www.microsoft.com
+	VLESSDomain string `json:"vless_domain"` // SNI camouflage, default www.apple.com
 
 	// Hysteria2 params.
 	Hysteria2Port     int    `json:"hysteria2_port"`      // default 41020
@@ -178,7 +178,11 @@ func (w *Wizard) Complete(ctx context.Context, nodeID uint, req CompleteRequest)
 		req.VLESSPort = 8443
 	}
 	if req.VLESSDomain == "" {
-		req.VLESSDomain = "www.microsoft.com"
+		// Reality borrows this host's TLS handshake as camouflage. www.apple.com
+		// (Akamai) is reliable and load-tolerant; www.microsoft.com (Azure Front
+		// Door) intermittently rejects the borrowed handshake from VPS IPs, which
+		// surfaces as "REALITY: processed invalid connection" for every client.
+		req.VLESSDomain = "www.apple.com"
 	}
 	if req.Hysteria2Port == 0 {
 		req.Hysteria2Port = 41020

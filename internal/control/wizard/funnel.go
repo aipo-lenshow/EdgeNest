@@ -1077,7 +1077,10 @@ func mergeAdvancedOverrides(cur *model.AdvancedConfig, nodeID uint, ov *Advanced
 func sniFor(protoID, domain, vpsIP string) string {
 	switch protoID {
 	case "vless-reality", "vless-xhttp-reality":
-		return "www.microsoft.com"
+		// www.apple.com (Akamai) borrows reliably; www.microsoft.com (Azure Front
+		// Door) intermittently rejects Reality's borrowed handshake from VPS IPs,
+		// breaking every client with "REALITY: processed invalid connection".
+		return "www.apple.com"
 	}
 	if domain != "" {
 		return domain

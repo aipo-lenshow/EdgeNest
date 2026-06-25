@@ -72,7 +72,7 @@ func main() {
 
 // version is overridden by the linker via Makefile's -X main.version flag.
 // The compiled-in default tracks the current source-tree release.
-var version = "1.12.0624"
+var version = "1.20.0626"
 
 func runStandalone(cfg config.Config) {
 	if err := cfg.EnsureDataDir(); err != nil {

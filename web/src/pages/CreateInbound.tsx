@@ -151,6 +151,19 @@ function XrayLockedHint({ t }: { t: TFunction }) {
   );
 }
 
+// SocksPlaintextHint warns that SOCKS5 carries no encryption or obfuscation, so
+// it belongs on trusted / local networks; on public or network-restricted paths
+// the cleartext is easily disrupted (observed on real carrier links — TCP
+// reaches the port but the proxied payload is dropped), and an encrypted
+// protocol is the right choice. Shown inline under the SOCKS5 card.
+function SocksPlaintextHint({ t }: { t: TFunction }) {
+  return (
+    <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+      ⚠ {t("createInbound.socksPlaintextWarn")}
+    </div>
+  );
+}
+
 // Scenarios feed the 场景 mode chooser. Each scenario maps to 1-3 protocols
 // the user will land on in Quick mode pre-checked, with rationale so they
 // see why we picked these. Keep this list tight — 6 scenarios is the sweet
@@ -762,6 +775,7 @@ function QuickFlow({
                     {t(`guide.proto.${id}.brief`)}
                   </div>
                   {locked && <XrayLockedHint t={t} />}
+                  {id === "socks5" && <SocksPlaintextHint t={t} />}
                 </div>
               </label>
               {sel && (
@@ -1464,6 +1478,7 @@ function Step3Protocols({
                     {t(`guide.proto.${id}.scenarios`)}
                   </div>
                   {locked && <XrayLockedHint t={t} />}
+                  {id === "socks5" && <SocksPlaintextHint t={t} />}
                   {incompat.length > 0 && (
                     <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
                       ⚠{" "}

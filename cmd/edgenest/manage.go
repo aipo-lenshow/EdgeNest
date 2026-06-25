@@ -14,6 +14,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -21,11 +22,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/auth"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/bootstrap"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/config"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/updatecheck"
 	"github.com/aipo-lenshow/EdgeNest/internal/core"
 )
 
@@ -338,12 +341,88 @@ func runUninstallScript(cfg config.Config) {
 	_ = cmd.Run()
 }
 
+// runUpgrade runs the installer-deployed upgrade.sh in the foreground with live
+// output. The CLI is not the edgenest service, so it survives the service
+// restart the upgrade triggers (unlike the panel/bot, which launch it detached).
+func runUpgrade(st *store.Store, cfg config.Config, lang string, r *bufio.Reader) {
+	latest, available := updatecheck.StatusLive(st, version)
+	if !available {
+		fmt.Println(tr(lang, "upg_none"))
+		return
+	}
+	script := filepath.Join(cfg.DataDir, "upgrade.sh")
+	if _, err := os.Stat(script); err != nil {
+		fmt.Printf("upgrade script not found at %s\n", script)
+		fmt.Println(tr(lang, "upg_noscript"))
+		return
+	}
+	fmt.Printf("%s  v%s → v%s\n", tr(lang, "upg_confirm"), version, latest)
+	if !confirm(tr(lang, "upg_confirm_q"), r) {
+		fmt.Println(tr(lang, "cancelled"))
+		return
+	}
+	fmt.Println(tr(lang, "upg_running"))
+	cmd := exec.Command("bash", script, latest)
+	cmd.Stdout, cmd.Stderr, cmd.Stdin = os.Stdout, os.Stderr, os.Stdin
+	_ = cmd.Run()
+	state := printUpgradeResult(cfg, lang)
+	if state == "success" {
+		// This menu process is still the OLD binary, so its compiled-in `version`
+		// is stale and the loop would keep showing the "update available" hint
+		// until the operator re-runs edgenest. Re-exec the freshly installed
+		// binary (fixed path — that's where the upgrade put the new one) so the
+		// menu reloads in place as the new version. Falls through to the loop if
+		// exec fails for any reason.
+		const installedBin = "/usr/local/bin/edgenest"
+		fmt.Println(tr(lang, "upg_reload"))
+		_ = syscall.Exec(installedBin, []string{installedBin}, os.Environ())
+	}
+}
+
+// printUpgradeResult surfaces the final localized message the script wrote and
+// returns the upgrade state ("success" / "rolledback" / "manual" / "") so the
+// caller can decide whether to re-exec into the new binary.
+func printUpgradeResult(cfg config.Config, lang string) string {
+	b, err := os.ReadFile(filepath.Join(cfg.DataDir, "upgrade-status.json"))
+	if err != nil {
+		return ""
+	}
+	var s struct {
+		State     string `json:"state"`
+		MessageZH string `json:"message_zh"`
+		MessageEN string `json:"message_en"`
+	}
+	if json.Unmarshal(b, &s) != nil {
+		return ""
+	}
+	msg := s.MessageEN
+	if strings.HasPrefix(lang, "zh") && s.MessageZH != "" {
+		msg = s.MessageZH
+	}
+	if msg == "" {
+		return s.State
+	}
+	color := cGreen
+	if s.State != "success" {
+		color = cRed
+	}
+	fmt.Printf("%s%s%s\n", color, msg, cReset)
+	return s.State
+}
+
 // ---- interactive menu ----
 
 func runMenu() {
 	st, cfg := openManageStore()
 	lang := menuLang(st)
 	r := bufio.NewReader(os.Stdin)
+	// Live update check once on menu entry (not per redraw) so opening `edgenest`
+	// reflects reality immediately after a release, instead of waiting up to an
+	// hour for the passive cache. StatusLive falls back to the cache on a network
+	// failure, so a box that's offline still renders (after the HTTP timeout). The
+	// version can't change mid-session — a successful upgrade re-execs the CLI, so
+	// this re-runs on the fresh process — hence computing it once is sufficient.
+	upLatest, upAvail := updatecheck.StatusLive(st, version)
 	for {
 		state := serviceState()
 		dot := cGreen + "●" + cReset
@@ -351,11 +430,15 @@ func runMenu() {
 			dot = cRed + "●" + cReset
 		}
 		fmt.Printf("\n%sEdgeNest %s%s  %s %s\n", cBold, version, cReset, dot, state)
+		if upAvail {
+			fmt.Printf("%s%s v%s%s\n", cYellow, tr(lang, "m_update_hint"), upLatest, cReset)
+		}
 		fmt.Printf(" 1) %s\n", tr(lang, "m_status"))
 		fmt.Printf(" 2) %s\n", tr(lang, "m_svc"))
 		fmt.Printf(" 3) %s\n", tr(lang, "m_logs"))
 		fmt.Printf(" 4) %s\n", tr(lang, "m_resetpass"))
-		fmt.Printf(" 5) %s\n", tr(lang, "m_uninstall"))
+		fmt.Printf(" 5) %s\n", tr(lang, "m_upgrade"))
+		fmt.Printf(" 6) %s\n", tr(lang, "m_uninstall"))
 		fmt.Printf(" 0) %s\n", tr(lang, "m_exit"))
 		fmt.Print(tr(lang, "prompt"))
 		line, _ := r.ReadString('\n')
@@ -373,6 +456,9 @@ func runMenu() {
 			}
 			pause(lang, r)
 		case "5":
+			runUpgrade(st, cfg, lang, r)
+			pause(lang, r)
+		case "6":
 			runUninstallScript(cfg)
 			// If uninstall ran, the binary itself may be gone next loop; either
 			// way returning to the menu after a removal attempt is fine.
@@ -474,171 +560,219 @@ func tr(lang, key string) string {
 
 var manageStr = map[string]map[string]string{
 	"zh": {
-		"f_panel":     "面板地址",
-		"f_login":     "账号",
-		"f_data":      "数据目录",
-		"f_logs":      "日志",
-		"m_status":    "查看面板地址 / 账号",
-		"m_svc":       "重启 / 停止 / 启动",
-		"m_logs":      "实时日志",
-		"m_resetpass": "重置管理员密码",
-		"m_uninstall": "卸载",
-		"m_exit":      "退出",
-		"m_back":      "返回",
-		"prompt":      "请选择: ",
-		"pause":       "按回车返回菜单… ",
-		"badchoice":   "无效选项。",
-		"cancelled":   "已取消。",
-		"svc_restart": "重启",
-		"svc_stop":    "停止",
-		"svc_start":   "启动",
-		"svc_ok":      "完成。",
-		"svc_fail":    "操作失败:",
-		"logs_hint":   "实时日志 — 按 Ctrl-C 返回菜单",
-		"rp_confirm":  "确认重置管理员密码? 旧密码立即失效 [y/N]: ",
-		"rp_done":     "管理员密码已重置 — 请记下新密码 (只显示这一次):",
-		"rp_newpw":    "新密码",
-		"rp_note":     "下次登录后会要求你再改一次密码。",
-		"rp_noadmin":  "未找到管理员账号 (尚未初始化?)。",
+		"f_panel":       "面板地址",
+		"f_login":       "账号",
+		"f_data":        "数据目录",
+		"f_logs":        "日志",
+		"m_status":      "查看面板地址 / 账号",
+		"m_svc":         "重启 / 停止 / 启动",
+		"m_logs":        "实时日志",
+		"m_resetpass":   "重置管理员密码",
+		"m_uninstall":   "卸载",
+		"m_upgrade":     "升级到最新稳定版",
+		"m_update_hint": "🆙 有新版可升级:",
+		"upg_none":      "已是最新稳定版，无需升级。",
+		"upg_noscript":  "未找到升级脚本，请用最新版重新安装以启用自升级。",
+		"upg_confirm":   "即将升级 EdgeNest：",
+		"upg_confirm_q": "确认升级？升级期间面板会重启 [y/N]: ",
+		"upg_running":   "正在升级…（可能需要一两分钟，请勿关闭）",
+		"upg_reload":    "升级完成，正在以新版本重新载入菜单…",
+		"m_exit":        "退出",
+		"m_back":        "返回",
+		"prompt":        "请选择: ",
+		"pause":         "按回车返回菜单… ",
+		"badchoice":     "无效选项。",
+		"cancelled":     "已取消。",
+		"svc_restart":   "重启",
+		"svc_stop":      "停止",
+		"svc_start":     "启动",
+		"svc_ok":        "完成。",
+		"svc_fail":      "操作失败:",
+		"logs_hint":     "实时日志 — 按 Ctrl-C 返回菜单",
+		"rp_confirm":    "确认重置管理员密码? 旧密码立即失效 [y/N]: ",
+		"rp_done":       "管理员密码已重置 — 请记下新密码 (只显示这一次):",
+		"rp_newpw":      "新密码",
+		"rp_note":       "下次登录后会要求你再改一次密码。",
+		"rp_noadmin":    "未找到管理员账号 (尚未初始化?)。",
 	},
 	"en": {
-		"f_panel":     "Panel",
-		"f_login":     "Login",
-		"f_data":      "Data dir",
-		"f_logs":      "Logs",
-		"m_status":    "Show panel URL / account",
-		"m_svc":       "Restart / stop / start",
-		"m_logs":      "Live logs",
-		"m_resetpass": "Reset admin password",
-		"m_uninstall": "Uninstall",
-		"m_exit":      "Exit",
-		"m_back":      "Back",
-		"prompt":      "Choose: ",
-		"pause":       "Press Enter to return to the menu… ",
-		"badchoice":   "Invalid choice.",
-		"cancelled":   "Cancelled.",
-		"svc_restart": "restart",
-		"svc_stop":    "stop",
-		"svc_start":   "start",
-		"svc_ok":      "done.",
-		"svc_fail":    "action failed:",
-		"logs_hint":   "Live logs — press Ctrl-C to return to the menu",
-		"rp_confirm":  "Reset the admin password? The old one stops working immediately [y/N]: ",
-		"rp_done":     "Admin password reset — write down the new one (shown once):",
-		"rp_newpw":    "New password",
-		"rp_note":     "You'll be asked to change it again after your next login.",
-		"rp_noadmin":  "No admin account found (not initialised yet?).",
+		"f_panel":       "Panel",
+		"f_login":       "Login",
+		"f_data":        "Data dir",
+		"f_logs":        "Logs",
+		"m_status":      "Show panel URL / account",
+		"m_svc":         "Restart / stop / start",
+		"m_logs":        "Live logs",
+		"m_resetpass":   "Reset admin password",
+		"m_uninstall":   "Uninstall",
+		"m_upgrade":     "Upgrade to latest stable",
+		"m_update_hint": "🆙 Update available:",
+		"upg_none":      "Already on the latest stable version.",
+		"upg_noscript":  "Upgrade script missing; reinstall from the latest release to enable self-upgrade.",
+		"upg_confirm":   "About to upgrade EdgeNest:",
+		"upg_confirm_q": "Proceed? The panel will restart during the upgrade [y/N]: ",
+		"upg_running":   "Upgrading… (may take a minute; do not close)",
+		"upg_reload":    "Upgrade complete; reloading the menu on the new version…",
+		"m_exit":        "Exit",
+		"m_back":        "Back",
+		"prompt":        "Choose: ",
+		"pause":         "Press Enter to return to the menu… ",
+		"badchoice":     "Invalid choice.",
+		"cancelled":     "Cancelled.",
+		"svc_restart":   "restart",
+		"svc_stop":      "stop",
+		"svc_start":     "start",
+		"svc_ok":        "done.",
+		"svc_fail":      "action failed:",
+		"logs_hint":     "Live logs — press Ctrl-C to return to the menu",
+		"rp_confirm":    "Reset the admin password? The old one stops working immediately [y/N]: ",
+		"rp_done":       "Admin password reset — write down the new one (shown once):",
+		"rp_newpw":      "New password",
+		"rp_note":       "You'll be asked to change it again after your next login.",
+		"rp_noadmin":    "No admin account found (not initialised yet?).",
 	},
 	"zh-TW": {
-		"f_panel":     "面板地址",
-		"f_login":     "帳號",
-		"f_data":      "資料目錄",
-		"f_logs":      "日誌",
-		"m_status":    "檢視面板地址 / 帳號",
-		"m_svc":       "重啟 / 停止 / 啟動",
-		"m_logs":      "即時日誌",
-		"m_resetpass": "重設管理員密碼",
-		"m_uninstall": "解除安裝",
-		"m_exit":      "結束",
-		"m_back":      "返回",
-		"prompt":      "請選擇: ",
-		"pause":       "按 Enter 返回選單… ",
-		"badchoice":   "無效選項。",
-		"cancelled":   "已取消。",
-		"svc_restart": "重啟",
-		"svc_stop":    "停止",
-		"svc_start":   "啟動",
-		"svc_ok":      "完成。",
-		"svc_fail":    "操作失敗:",
-		"logs_hint":   "即時日誌 — 按 Ctrl-C 返回選單",
-		"rp_confirm":  "確認重設管理員密碼? 舊密碼立即失效 [y/N]: ",
-		"rp_done":     "管理員密碼已重設 — 請記下新密碼 (只顯示這一次):",
-		"rp_newpw":    "新密碼",
-		"rp_note":     "下次登入後會要求你再改一次密碼。",
-		"rp_noadmin":  "找不到管理員帳號 (尚未初始化?)。",
+		"f_panel":       "面板地址",
+		"f_login":       "帳號",
+		"f_data":        "資料目錄",
+		"f_logs":        "日誌",
+		"m_status":      "檢視面板地址 / 帳號",
+		"m_svc":         "重啟 / 停止 / 啟動",
+		"m_logs":        "即時日誌",
+		"m_resetpass":   "重設管理員密碼",
+		"m_uninstall":   "解除安裝",
+		"m_upgrade":     "升級到最新穩定版",
+		"m_update_hint": "🆙 有新版可升級:",
+		"upg_none":      "已是最新穩定版，無需升級。",
+		"upg_noscript":  "找不到升級腳本，請用最新版重新安裝以啟用自升級。",
+		"upg_confirm":   "即將升級 EdgeNest：",
+		"upg_confirm_q": "確認升級？升級期間面板會重啟 [y/N]: ",
+		"upg_running":   "正在升級…（可能需要一兩分鐘，請勿關閉）",
+		"upg_reload":    "升級完成，正在以新版本重新載入選單…",
+		"m_exit":        "結束",
+		"m_back":        "返回",
+		"prompt":        "請選擇: ",
+		"pause":         "按 Enter 返回選單… ",
+		"badchoice":     "無效選項。",
+		"cancelled":     "已取消。",
+		"svc_restart":   "重啟",
+		"svc_stop":      "停止",
+		"svc_start":     "啟動",
+		"svc_ok":        "完成。",
+		"svc_fail":      "操作失敗:",
+		"logs_hint":     "即時日誌 — 按 Ctrl-C 返回選單",
+		"rp_confirm":    "確認重設管理員密碼? 舊密碼立即失效 [y/N]: ",
+		"rp_done":       "管理員密碼已重設 — 請記下新密碼 (只顯示這一次):",
+		"rp_newpw":      "新密碼",
+		"rp_note":       "下次登入後會要求你再改一次密碼。",
+		"rp_noadmin":    "找不到管理員帳號 (尚未初始化?)。",
 	},
 	"fa": {
-		"f_panel":     "آدرس پنل",
-		"f_login":     "حساب",
-		"f_data":      "پوشهٔ داده",
-		"f_logs":      "لاگ‌ها",
-		"m_status":    "نمایش آدرس پنل / حساب",
-		"m_svc":       "راه‌اندازی مجدد / توقف / شروع",
-		"m_logs":      "لاگ‌های زنده",
-		"m_resetpass": "بازنشانی رمز مدیر",
-		"m_uninstall": "حذف نصب",
-		"m_exit":      "خروج",
-		"m_back":      "بازگشت",
-		"prompt":      "انتخاب کنید: ",
-		"pause":       "برای بازگشت به منو Enter را بزنید… ",
-		"badchoice":   "گزینهٔ نامعتبر.",
-		"cancelled":   "لغو شد.",
-		"svc_restart": "راه‌اندازی مجدد",
-		"svc_stop":    "توقف",
-		"svc_start":   "شروع",
-		"svc_ok":      "انجام شد.",
-		"svc_fail":    "عملیات ناموفق بود:",
-		"logs_hint":   "لاگ‌های زنده — برای بازگشت به منو Ctrl-C را بزنید",
-		"rp_confirm":  "رمز مدیر بازنشانی شود؟ رمز قبلی بلافاصله از کار می‌افتد [y/N]: ",
-		"rp_done":     "رمز مدیر بازنشانی شد — رمز جدید را یادداشت کنید (فقط یک‌بار نمایش داده می‌شود):",
-		"rp_newpw":    "رمز جدید",
-		"rp_note":     "پس از ورود بعدی از شما خواسته می‌شود دوباره رمز را تغییر دهید.",
-		"rp_noadmin":  "حساب مدیر پیدا نشد (هنوز مقداردهی اولیه نشده؟).",
+		"f_panel":       "آدرس پنل",
+		"f_login":       "حساب",
+		"f_data":        "پوشهٔ داده",
+		"f_logs":        "لاگ‌ها",
+		"m_status":      "نمایش آدرس پنل / حساب",
+		"m_svc":         "راه‌اندازی مجدد / توقف / شروع",
+		"m_logs":        "لاگ‌های زنده",
+		"m_resetpass":   "بازنشانی رمز مدیر",
+		"m_uninstall":   "حذف نصب",
+		"m_upgrade":     "ارتقا به آخرین نسخه پایدار",
+		"m_update_hint": "🆙 به‌روزرسانی موجود است:",
+		"upg_none":      "هم‌اکنون روی آخرین نسخه پایدار هستید.",
+		"upg_noscript":  "اسکریپت ارتقا یافت نشد؛ برای فعال‌سازی خودارتقا از آخرین نسخه دوباره نصب کنید.",
+		"upg_confirm":   "ارتقای EdgeNest:",
+		"upg_confirm_q": "ادامه می‌دهید؟ پنل در حین ارتقا ری‌استارت می‌شود [y/N]: ",
+		"upg_running":   "در حال ارتقا… (ممکن است یک دقیقه طول بکشد؛ نبندید)",
+		"upg_reload":    "ارتقا کامل شد؛ منو با نسخه جدید دوباره بارگذاری می‌شود…",
+		"m_exit":        "خروج",
+		"m_back":        "بازگشت",
+		"prompt":        "انتخاب کنید: ",
+		"pause":         "برای بازگشت به منو Enter را بزنید… ",
+		"badchoice":     "گزینهٔ نامعتبر.",
+		"cancelled":     "لغو شد.",
+		"svc_restart":   "راه‌اندازی مجدد",
+		"svc_stop":      "توقف",
+		"svc_start":     "شروع",
+		"svc_ok":        "انجام شد.",
+		"svc_fail":      "عملیات ناموفق بود:",
+		"logs_hint":     "لاگ‌های زنده — برای بازگشت به منو Ctrl-C را بزنید",
+		"rp_confirm":    "رمز مدیر بازنشانی شود؟ رمز قبلی بلافاصله از کار می‌افتد [y/N]: ",
+		"rp_done":       "رمز مدیر بازنشانی شد — رمز جدید را یادداشت کنید (فقط یک‌بار نمایش داده می‌شود):",
+		"rp_newpw":      "رمز جدید",
+		"rp_note":       "پس از ورود بعدی از شما خواسته می‌شود دوباره رمز را تغییر دهید.",
+		"rp_noadmin":    "حساب مدیر پیدا نشد (هنوز مقداردهی اولیه نشده؟).",
 	},
 	"ru": {
-		"f_panel":     "Панель",
-		"f_login":     "Логин",
-		"f_data":      "Каталог данных",
-		"f_logs":      "Логи",
-		"m_status":    "Показать URL панели / аккаунт",
-		"m_svc":       "Перезапуск / остановка / запуск",
-		"m_logs":      "Логи в реальном времени",
-		"m_resetpass": "Сбросить пароль администратора",
-		"m_uninstall": "Удалить",
-		"m_exit":      "Выход",
-		"m_back":      "Назад",
-		"prompt":      "Выбор: ",
-		"pause":       "Нажмите Enter, чтобы вернуться в меню… ",
-		"badchoice":   "Неверный выбор.",
-		"cancelled":   "Отменено.",
-		"svc_restart": "перезапуск",
-		"svc_stop":    "остановка",
-		"svc_start":   "запуск",
-		"svc_ok":      "готово.",
-		"svc_fail":    "ошибка операции:",
-		"logs_hint":   "Логи в реальном времени — нажмите Ctrl-C для возврата в меню",
-		"rp_confirm":  "Сбросить пароль администратора? Старый сразу перестанет работать [y/N]: ",
-		"rp_done":     "Пароль администратора сброшен — запишите новый (показывается один раз):",
-		"rp_newpw":    "Новый пароль",
-		"rp_note":     "При следующем входе вам снова предложат сменить пароль.",
-		"rp_noadmin":  "Аккаунт администратора не найден (ещё не инициализирован?).",
+		"f_panel":       "Панель",
+		"f_login":       "Логин",
+		"f_data":        "Каталог данных",
+		"f_logs":        "Логи",
+		"m_status":      "Показать URL панели / аккаунт",
+		"m_svc":         "Перезапуск / остановка / запуск",
+		"m_logs":        "Логи в реальном времени",
+		"m_resetpass":   "Сбросить пароль администратора",
+		"m_uninstall":   "Удалить",
+		"m_upgrade":     "Обновить до последней стабильной версии",
+		"m_update_hint": "🆙 Доступно обновление:",
+		"upg_none":      "Уже установлена последняя стабильная версия.",
+		"upg_noscript":  "Скрипт обновления не найден; переустановите из последнего релиза для самообновления.",
+		"upg_confirm":   "Обновление EdgeNest:",
+		"upg_confirm_q": "Продолжить? Панель перезапустится во время обновления [y/N]: ",
+		"upg_running":   "Обновление… (может занять минуту; не закрывайте)",
+		"upg_reload":    "Обновление завершено; меню перезагружается на новой версии…",
+		"m_exit":        "Выход",
+		"m_back":        "Назад",
+		"prompt":        "Выбор: ",
+		"pause":         "Нажмите Enter, чтобы вернуться в меню… ",
+		"badchoice":     "Неверный выбор.",
+		"cancelled":     "Отменено.",
+		"svc_restart":   "перезапуск",
+		"svc_stop":      "остановка",
+		"svc_start":     "запуск",
+		"svc_ok":        "готово.",
+		"svc_fail":      "ошибка операции:",
+		"logs_hint":     "Логи в реальном времени — нажмите Ctrl-C для возврата в меню",
+		"rp_confirm":    "Сбросить пароль администратора? Старый сразу перестанет работать [y/N]: ",
+		"rp_done":       "Пароль администратора сброшен — запишите новый (показывается один раз):",
+		"rp_newpw":      "Новый пароль",
+		"rp_note":       "При следующем входе вам снова предложат сменить пароль.",
+		"rp_noadmin":    "Аккаунт администратора не найден (ещё не инициализирован?).",
 	},
 	"vi": {
-		"f_panel":     "Bảng điều khiển",
-		"f_login":     "Tài khoản",
-		"f_data":      "Thư mục dữ liệu",
-		"f_logs":      "Nhật ký",
-		"m_status":    "Hiển thị URL bảng điều khiển / tài khoản",
-		"m_svc":       "Khởi động lại / dừng / khởi động",
-		"m_logs":      "Nhật ký trực tiếp",
-		"m_resetpass": "Đặt lại mật khẩu quản trị",
-		"m_uninstall": "Gỡ cài đặt",
-		"m_exit":      "Thoát",
-		"m_back":      "Quay lại",
-		"prompt":      "Chọn: ",
-		"pause":       "Nhấn Enter để quay lại menu… ",
-		"badchoice":   "Lựa chọn không hợp lệ.",
-		"cancelled":   "Đã hủy.",
-		"svc_restart": "khởi động lại",
-		"svc_stop":    "dừng",
-		"svc_start":   "khởi động",
-		"svc_ok":      "xong.",
-		"svc_fail":    "thao tác thất bại:",
-		"logs_hint":   "Nhật ký trực tiếp — nhấn Ctrl-C để quay lại menu",
-		"rp_confirm":  "Đặt lại mật khẩu quản trị? Mật khẩu cũ ngừng hoạt động ngay [y/N]: ",
-		"rp_done":     "Đã đặt lại mật khẩu quản trị — ghi lại mật khẩu mới (chỉ hiển thị một lần):",
-		"rp_newpw":    "Mật khẩu mới",
-		"rp_note":     "Bạn sẽ được yêu cầu đổi lại mật khẩu sau lần đăng nhập tiếp theo.",
-		"rp_noadmin":  "Không tìm thấy tài khoản quản trị (chưa khởi tạo?).",
+		"f_panel":       "Bảng điều khiển",
+		"f_login":       "Tài khoản",
+		"f_data":        "Thư mục dữ liệu",
+		"f_logs":        "Nhật ký",
+		"m_status":      "Hiển thị URL bảng điều khiển / tài khoản",
+		"m_svc":         "Khởi động lại / dừng / khởi động",
+		"m_logs":        "Nhật ký trực tiếp",
+		"m_resetpass":   "Đặt lại mật khẩu quản trị",
+		"m_uninstall":   "Gỡ cài đặt",
+		"m_upgrade":     "Nâng cấp lên bản ổn định mới nhất",
+		"m_update_hint": "🆙 Có bản cập nhật:",
+		"upg_none":      "Đã ở bản ổn định mới nhất.",
+		"upg_noscript":  "Thiếu script nâng cấp; cài lại từ bản phát hành mới nhất để bật tự nâng cấp.",
+		"upg_confirm":   "Sắp nâng cấp EdgeNest:",
+		"upg_confirm_q": "Tiếp tục? Bảng điều khiển sẽ khởi động lại khi nâng cấp [y/N]: ",
+		"upg_running":   "Đang nâng cấp… (có thể mất một phút; đừng đóng)",
+		"upg_reload":    "Nâng cấp xong; đang tải lại menu trên phiên bản mới…",
+		"m_exit":        "Thoát",
+		"m_back":        "Quay lại",
+		"prompt":        "Chọn: ",
+		"pause":         "Nhấn Enter để quay lại menu… ",
+		"badchoice":     "Lựa chọn không hợp lệ.",
+		"cancelled":     "Đã hủy.",
+		"svc_restart":   "khởi động lại",
+		"svc_stop":      "dừng",
+		"svc_start":     "khởi động",
+		"svc_ok":        "xong.",
+		"svc_fail":      "thao tác thất bại:",
+		"logs_hint":     "Nhật ký trực tiếp — nhấn Ctrl-C để quay lại menu",
+		"rp_confirm":    "Đặt lại mật khẩu quản trị? Mật khẩu cũ ngừng hoạt động ngay [y/N]: ",
+		"rp_done":       "Đã đặt lại mật khẩu quản trị — ghi lại mật khẩu mới (chỉ hiển thị một lần):",
+		"rp_newpw":      "Mật khẩu mới",
+		"rp_note":       "Bạn sẽ được yêu cầu đổi lại mật khẩu sau lần đăng nhập tiếp theo.",
+		"rp_noadmin":    "Không tìm thấy tài khoản quản trị (chưa khởi tạo?).",
 	},
 }
