@@ -47,7 +47,7 @@ Usage:
 
 Env var overrides:
   EDGENEST_LANG          en | zh | zh-TW | fa | ru | vi (overrides $LANG-detected default; --lang= wins over this)
-  EDGENEST_VERSION       (default 1.12.0624, used for prebuilt download URL)
+  EDGENEST_VERSION       (default 1.20.0626, used for prebuilt download URL)
   EDGENEST_RELEASE_BASE  (default https://github.com/aipo-lenshow/EdgeNest/releases/download)
   SINGBOX_VERSION        (default 1.13.13; always built/obtained with the with_v2ray_api tag)
   XRAY_VERSION           (default 26.3.27)
@@ -59,7 +59,7 @@ EOF
 done
 
 # ---- Pinned versions ----
-EDGENEST_VERSION="${EDGENEST_VERSION:-1.12.0624}"
+EDGENEST_VERSION="${EDGENEST_VERSION:-1.20.0626}"
 EDGENEST_RELEASE_BASE="${EDGENEST_RELEASE_BASE:-https://github.com/aipo-lenshow/EdgeNest/releases/download}"
 SINGBOX_VERSION="${SINGBOX_VERSION:-1.13.13}"
 XRAY_VERSION="${XRAY_VERSION:-26.3.27}"
@@ -502,6 +502,11 @@ I18N_ZH[xray_downloading]="下载 xray-core v%s (%s)…"
 I18N_ZHTW[xray_downloading]="下載 xray-core v%s (%s)…"
 I18N_FA[xray_downloading]="در حال دانلود xray-core v%s (%s)…"
 I18N_RU[xray_downloading]="Загрузка xray-core v%s (%s)…"
+I18N_EN[xray_download_failed]="Failed to download xray-core; skipping xray install."
+I18N_ZH[xray_download_failed]="下载 xray-core 失败, 跳过 xray 安装。"
+I18N_ZHTW[xray_download_failed]="下載 xray-core 失敗, 跳過 xray 安裝。"
+I18N_FA[xray_download_failed]="دانلود xray-core ناموفق بود؛ از نصب xray صرف‌نظر شد."
+I18N_RU[xray_download_failed]="Не удалось загрузить xray-core; установка xray пропущена."
 I18N_EN[xray_installed]="xray installed: %s"
 I18N_ZH[xray_installed]="xray 已装: %s"
 I18N_ZHTW[xray_installed]="xray 已裝: %s"
@@ -991,6 +996,7 @@ I18N_VI[xray_present]="xray đã có sẵn ở phiên bản cố định, bỏ q
 I18N_VI[xray_version_mismatch]="xray hệ thống v%s != phiên bản cố định v%s; cài lại phiên bản cố định."
 I18N_VI[xray_unsupported]="xray không hỗ trợ kiến trúc: %s"
 I18N_VI[xray_downloading]="Đang tải xray-core v%s (%s)…"
+I18N_VI[xray_download_failed]="Tải xray-core thất bại; bỏ qua cài đặt xray."
 I18N_VI[xray_installed]="xray đã cài đặt: %s"
 I18N_VI[xray_verify_fail]="LỖI NGHIÊM TRỌNG: mong đợi xray v%s nhưng tệp nhị phân đã cài báo cáo v%s. Hủy bỏ."
 I18N_VI[edgenest_installing]="Đang cài đặt tệp nhị phân EdgeNest…"
@@ -1339,12 +1345,74 @@ ask_yes_no() {
   esac
 }
 
+# _http_get URL [-4|-6]: fetch a URL body, trying curl then wget. The host
+# probes below run in print_server_info / ask_user_config, BEFORE install_deps
+# installs curl — and minimal Debian images ship neither curl nor (sometimes)
+# wget. Falling back keeps detection working instead of defaulting the panel
+# host to 127.0.0.1. Never propagates a non-zero exit (script is set -euo
+# pipefail): every command substitution is guarded with `|| true`.
+_http_get() {
+  local url="$1" fam="${2:-}" out=""
+  if command -v curl >/dev/null 2>&1; then
+    out=$(curl -fsSL $fam -k -m 5 "$url" 2>/dev/null || true)
+  fi
+  if [ -z "$out" ] && command -v wget >/dev/null 2>&1; then
+    out=$(wget $fam -qO- -T 5 -t 1 "$url" 2>/dev/null || true)
+  fi
+  printf '%s' "$out" | tr -d '[:space:]'
+}
+
+# _fetch_artifact URL OUTFILE: robustly download a (potentially large) release
+# artifact. Returns 0 on success, 1 on failure.
+#
+# NEVER use a flat `curl -m N` total-time cap for an artifact download: it aborts
+# a perfectly healthy transfer the instant a big file on a slow link can't finish
+# within N seconds. The 52MB edgenest tarball on a freshly-imaged low-end VPS was
+# tripping `-m 30` mid-transfer → the prebuilt path silently "failed" → install
+# fell back to a source build (the OOM-prone path the prebuilt exists to avoid),
+# the worst outcome on exactly the slow/small machines that need prebuilt most.
+#
+# Instead: bound the CONNECT time, and abort only on a genuinely STALLED transfer
+# (sustained < 1KB/s for 60s), with retries for transient blips. On failure we
+# surface the tool's exit code (no 2>/dev/null) so the cause is diagnosable
+# instead of an opaque "prebuilt unavailable". --speed-time/--retry are in curl
+# since 7.12; we avoid 7.71+ flags (--retry-all-errors) for old-distro curl.
+_fetch_artifact() {
+  local url="$1" out="$2" rc
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --connect-timeout 20 --retry 3 --retry-delay 2 \
+         --speed-limit 1024 --speed-time 60 -o "$out" "$url"
+    rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    yellow "download failed (curl exit $rc): $url"
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    wget -q --connect-timeout=20 --tries=3 --read-timeout=60 -O "$out" "$url"
+    rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    yellow "download failed (wget exit $rc): $url"
+  fi
+  return 1
+}
+
+# _local_ip 4|6: last-resort — the first globally-scoped address on the box
+# itself. Correct on non-NAT VPSes (the common case); on NAT'd hosts it yields
+# the private IP, still far better than 127.0.0.1 and corrected by
+# detect_node_capability once curl is installed. iproute2 is always present.
+_local_ip() {
+  local fam="$1" out=""
+  out=$(ip -"$fam" addr show scope global 2>/dev/null | awk -v f="$fam" '
+    f==4 && /inet /  {sub(/\/.*/,"",$2); print $2; exit}
+    f==6 && /inet6 / {sub(/\/.*/,"",$2); print $2; exit}' || true)
+  printf '%s' "$out"
+}
+
 detect_public_ip() {
   local ip=""
-  ip=$(curl -fsSL -m 5 https://api.ipify.org 2>/dev/null) \
-    || ip=$(curl -fsSL -m 5 https://ifconfig.me 2>/dev/null) \
-    || ip=$(curl -fsSL -m 5 https://ipinfo.io/ip 2>/dev/null) \
-    || ip=""
+  ip=$(_http_get https://api.ipify.org)
+  [ -n "$ip" ] || ip=$(_http_get https://ifconfig.me)
+  [ -n "$ip" ] || ip=$(_http_get https://ipinfo.io/ip)
+  [ -n "$ip" ] || ip=$(_local_ip 4)
   echo "$ip"
 }
 
@@ -1354,17 +1422,19 @@ detect_public_ip() {
 # summary. icanhazip is the same probe detect_node_capability uses, so both
 # numbers agree.
 detect_public_ip_v4() {
-  # Must never propagate curl's non-zero exit: the script runs under
+  # Must never propagate a non-zero exit: the script runs under
   # `set -euo pipefail`, so a failing pipeline aborts the installer
   # before ask_user_config can show anything. On a v4-only host the v6
   # probe must fail silently and return an empty string; same in reverse.
   local out=""
-  out=$(curl -fsS4 -m 5 https://icanhazip.com -k 2>/dev/null) || out=""
+  out=$(_http_get https://icanhazip.com -4)
+  [ -n "$out" ] || out=$(_local_ip 4)
   printf '%s' "$out" | tr -d '[:space:]'
 }
 detect_public_ip_v6() {
   local out=""
-  out=$(curl -fsS6 -m 5 https://icanhazip.com -k 2>/dev/null) || out=""
+  out=$(_http_get https://icanhazip.com -6)
+  [ -n "$out" ] || out=$(_local_ip 6)
   printf '%s' "$out" | tr -d '[:space:]'
 }
 
@@ -1375,7 +1445,7 @@ detect_public_ip_v6() {
 detect_existing_panel_port() {
   [ -f "$SYSTEMD_UNIT" ] || return 1
   local listen port
-  listen=$(grep -oE -- '--listen [^ ]+' "$SYSTEMD_UNIT" 2>/dev/null | head -1 | awk '{print $2}')
+  listen=$(grep -oE -- '--listen [^ ]+' "$SYSTEMD_UNIT" 2>/dev/null | awk 'NR==1{print $2}')
   [ -n "$listen" ] || return 1
   port="${listen##*:}"
   case "$port" in
@@ -1511,12 +1581,36 @@ _binary_arch_matches() {
   esac
 }
 
+# Returns 0 if $1 runs and self-reports the target EDGENEST_VERSION. Used to
+# reject a STALE ./bin/edgenest. On self-upgrade the install-source clone keeps a
+# leftover bin/edgenest from the prior install (bin/ is gitignored, so
+# `git checkout <newtag>` never refreshes it); without this gate install.sh's
+# local-binary tier reinstalls the OLD binary, the upgrade's health check never
+# sees the new version, and it rolls back forever. A deploy-tarball ships a
+# matching binary, so this passes there. Arch is already verified by the caller,
+# so the binary is runnable on this host. An old binary lacking --version, or any
+# version skew, fails closed → fall through to the prebuilt download.
+_binary_version_matches() {
+  local f="$1" got
+  [ -x "$f" ] || return 1
+  got=$("$f" --version 2>/dev/null | awk 'NR==1{print $NF}')
+  [ "$got" = "$EDGENEST_VERSION" ]
+}
+
 ensure_edgenest_binary() {
   local candidate=""
   if _binary_arch_matches "./bin/edgenest-linux-${ARCH}"; then
     candidate="./bin/edgenest-linux-${ARCH}"
   elif _binary_arch_matches "./bin/edgenest"; then
     candidate="./bin/edgenest"
+  fi
+  # An arch-matching local binary is only usable if it ALSO matches the target
+  # version — otherwise a stale clone binary silently downgrades a self-upgrade
+  # (see _binary_version_matches). Drop it and fetch the prebuilt for the tag.
+  if [ -n "$candidate" ] && ! _binary_version_matches "$candidate"; then
+    yellow "Local ./bin/edgenest is v$("$candidate" --version 2>/dev/null | awk 'NR==1{print $NF}'), need v${EDGENEST_VERSION}; ignoring (fetching prebuilt)."
+    rm -f ./bin/edgenest "./bin/edgenest-linux-${ARCH}"
+    candidate=""
   fi
   if [ -n "$candidate" ]; then
     if [ "$candidate" != "./bin/edgenest" ]; then
@@ -1551,7 +1645,7 @@ try_prebuilt_release() {
   local url="${EDGENEST_RELEASE_BASE}/${tag}/edgenest-${EDGENEST_VERSION}-linux-${ARCH}.tar.gz"
   info "$(t prebuilt_trying "$tag" "$ARCH")"
   local tmp; tmp="$(mktemp -d)"
-  if ! curl -fsSL -m 30 "$url" -o "$tmp/edgenest.tar.gz" 2>/dev/null; then
+  if ! _fetch_artifact "$url" "$tmp/edgenest.tar.gz"; then
     rm -rf "$tmp"
     return 1
   fi
@@ -1565,9 +1659,13 @@ try_prebuilt_release() {
   elif [ -x "$tmp/bin/edgenest" ]; then
     install -m 0755 "$tmp/bin/edgenest" ./bin/edgenest
   else
-    # tar may contain a versioned subdir (edgenest-<ver>-linux-<arch>/edgenest)
+    # The release tarball (make-deploy-tarball.sh) nests the binary as
+    # <ver>-linux-<arch>/bin/edgenest-linux-<arch> — the arch-suffixed name the
+    # LOCAL tier (ensure_edgenest_binary) keys on. Match that as well as a bare
+    # `edgenest`, or the download path silently falls back to a source build on
+    # every fresh install (the slow / OOM-prone path prebuilt exists to avoid).
     local found
-    found=$(find "$tmp" -type f -name edgenest -perm -u+x | head -1)
+    found=$(find "$tmp" -type f \( -name edgenest -o -name "edgenest-linux-${ARCH}" \) -perm -u+x 2>/dev/null | awk 'NR==1')
     if [ -n "$found" ]; then
       install -m 0755 "$found" ./bin/edgenest
     else
@@ -1600,7 +1698,7 @@ ensure_build_toolchain() {
 install_go() {
   info "$(t go_installing "$GO_VERSION")"
   local url="https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz"
-  curl -fsSL "$url" -o /tmp/go.tar.gz
+  _fetch_artifact "$url" /tmp/go.tar.gz
   rm -rf /usr/local/go
   tar -C /usr/local -xzf /tmp/go.tar.gz
   rm -f /tmp/go.tar.gz
@@ -1681,10 +1779,10 @@ try_release_singbox() {
   local url="${EDGENEST_RELEASE_BASE}/${tag}/sing-box-${SINGBOX_VERSION}-with_v2ray_api-linux-${ARCH}.tar.gz"
   info "$(t sb_release_trying "$SINGBOX_VERSION" "$ARCH")"
   local tmp; tmp="$(mktemp -d)"
-  if ! curl -fsSL -m 60 "$url" -o "$tmp/sb.tar.gz" 2>/dev/null; then rm -rf "$tmp"; return 1; fi
+  if ! _fetch_artifact "$url" "$tmp/sb.tar.gz"; then rm -rf "$tmp"; return 1; fi
   if ! tar -xzf "$tmp/sb.tar.gz" -C "$tmp" 2>/dev/null; then rm -rf "$tmp"; return 1; fi
   local found
-  found=$(find "$tmp" -type f -name 'sing-box*' ! -name '*.tar.gz' | head -1)
+  found=$(find "$tmp" -type f -name 'sing-box*' ! -name '*.tar.gz' | awk 'NR==1')
   if [ -z "$found" ]; then rm -rf "$tmp"; return 1; fi
   chmod 0755 "$found"
   if ! _singbox_verify "$found"; then rm -rf "$tmp"; return 1; fi
@@ -1705,7 +1803,7 @@ ensure_singbox_binary() {
   if [ -n "$sys" ] && _singbox_verify "$sys"; then
     [ "$sys" = "$INSTALL_BIN/sing-box" ] || install -m 0755 "$sys" "$INSTALL_BIN/sing-box"
     SINGBOX_SOURCE="system"
-    green "$(t sb_system_ok "$($INSTALL_BIN/sing-box version | head -1)")"
+    green "$(t sb_system_ok "$($INSTALL_BIN/sing-box version | awk 'NR==1')")"
     return
   fi
 
@@ -1719,14 +1817,14 @@ ensure_singbox_binary() {
     install -m 0755 "$cand" "$INSTALL_BIN/sing-box"
     SINGBOX_SOURCE="local"
     info "$(t sb_local_found)"
-    green "$(t sb_installed "$($INSTALL_BIN/sing-box version | head -1)")"
+    green "$(t sb_installed "$($INSTALL_BIN/sing-box version | awk 'NR==1')")"
     return
   fi
 
   # 2. EdgeNest GitHub Release asset (fast path for clone users once published).
   if [ "$NO_PREBUILT" = "0" ] && try_release_singbox; then
     SINGBOX_SOURCE="release"
-    green "$(t sb_installed "$($INSTALL_BIN/sing-box version | head -1)")"
+    green "$(t sb_installed "$($INSTALL_BIN/sing-box version | awk 'NR==1')")"
     return
   fi
 
@@ -1740,7 +1838,7 @@ ensure_singbox_binary() {
   if ! _singbox_verify "$built"; then red "$(t sb_fatal)"; exit 1; fi
   install -m 0755 "$built" "$INSTALL_BIN/sing-box"
   SINGBOX_SOURCE="source"
-  green "$(t sb_built "$($INSTALL_BIN/sing-box version | head -1)")"
+  green "$(t sb_built "$($INSTALL_BIN/sing-box version | awk 'NR==1')")"
 }
 
 install_xray() {
@@ -1749,7 +1847,7 @@ install_xray() {
   # so no custom build is needed — but we still pin the version: reuse a system
   # xray only if it already matches XRAY_VERSION, otherwise (re)install the pin.
   if command -v xray >/dev/null 2>&1; then
-    local cur; cur=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
+    local cur; cur=$(xray version 2>/dev/null | awk 'NR==1{print $2}')
     if [ "$cur" = "$XRAY_VERSION" ]; then
       info "$(t xray_present)"
       return
@@ -1765,19 +1863,19 @@ install_xray() {
   info "$(t xray_downloading "$XRAY_VERSION" "$zip_arch")"
   local url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-${zip_arch}.zip"
   local tmp; tmp="$(mktemp -d)"
-  curl -fsSL "$url" -o "$tmp/xray.zip"
+  if ! _fetch_artifact "$url" "$tmp/xray.zip"; then rm -rf "$tmp"; red "$(t xray_download_failed)"; return 0; fi
   unzip -o "$tmp/xray.zip" xray geoip.dat geosite.dat -d "$tmp/extract/" >/dev/null
   install -m 0755 "$tmp/extract/xray" "$INSTALL_BIN/xray"
   mkdir -p "$XRAY_SHARE_DIR"
   install -m 0644 "$tmp/extract/geoip.dat"   "$XRAY_SHARE_DIR/geoip.dat"
   install -m 0644 "$tmp/extract/geosite.dat" "$XRAY_SHARE_DIR/geosite.dat"
   rm -rf "$tmp"
-  local got; got=$($INSTALL_BIN/xray version 2>/dev/null | head -1 | awk '{print $2}')
+  local got; got=$($INSTALL_BIN/xray version 2>/dev/null | awk 'NR==1{print $2}')
   if [ "$got" != "$XRAY_VERSION" ]; then
     red "$(t xray_verify_fail "$XRAY_VERSION" "${got:-?}")"
     exit 1
   fi
-  green "$(t xray_installed "$($INSTALL_BIN/xray version | head -1)")"
+  green "$(t xray_installed "$($INSTALL_BIN/xray version | awk 'NR==1')")"
 }
 
 install_edgenest() {
@@ -1823,6 +1921,18 @@ setup_dirs_and_service() {
     cp scripts/uninstall.sh "$DATA_DIR/uninstall.sh"
     chmod 755 "$DATA_DIR/uninstall.sh"
   fi
+
+  # Stash the self-upgrade script in the data dir too — the `edgenest` menu, the
+  # web panel, and the Telegram bot all invoke $DATA_DIR/upgrade.sh.
+  if [ -f scripts/upgrade.sh ]; then
+    cp scripts/upgrade.sh "$DATA_DIR/upgrade.sh"
+    chmod 755 "$DATA_DIR/upgrade.sh"
+  fi
+
+  # Record this repo checkout so upgrade.sh can `git fetch + checkout` in place
+  # (keeping the operator's tree in sync); it falls back to a fresh temp clone if
+  # this path is gone. CWD is the repo root (see top of file).
+  pwd > "$DATA_DIR/install-source" 2>/dev/null || true
 
   # Choose the panel listen address based on the family the kernel can
   # actually bind. detect_node_capability later in install.sh disables v6
@@ -2216,9 +2326,9 @@ start_and_capture() {
   # stay unset — tripping `set -u` ("unbound variable") at the -z test below.
   BOOTSTRAP_PANEL_PATH=""; BOOTSTRAP_USERNAME=""; BOOTSTRAP_PASSWORD=""
   if [ -f "$cred_file" ]; then
-    BOOTSTRAP_PANEL_PATH=$(grep '^PANEL_PATH=' "$cred_file" | head -1 | cut -d= -f2-)
-    BOOTSTRAP_USERNAME=$(grep  '^USERNAME='   "$cred_file" | head -1 | cut -d= -f2-)
-    BOOTSTRAP_PASSWORD=$(grep  '^PASSWORD='   "$cred_file" | head -1 | cut -d= -f2-)
+    BOOTSTRAP_PANEL_PATH=$(grep '^PANEL_PATH=' "$cred_file" | awk 'NR==1' | cut -d= -f2-)
+    BOOTSTRAP_USERNAME=$(grep  '^USERNAME='   "$cred_file" | awk 'NR==1' | cut -d= -f2-)
+    BOOTSTRAP_PASSWORD=$(grep  '^PASSWORD='   "$cred_file" | awk 'NR==1' | cut -d= -f2-)
     rm -f "$cred_file"
   fi
 
@@ -2267,9 +2377,9 @@ sb_src_label() {
 
 print_summary() {
   local sb_ver xray_ver
-  sb_ver=$($INSTALL_BIN/sing-box version 2>/dev/null | head -1 | awk '{print $3}')
+  sb_ver=$($INSTALL_BIN/sing-box version 2>/dev/null | awk 'NR==1{print $3}')
   if [ "$INSTALL_XRAY" = "1" ]; then
-    xray_ver=$($INSTALL_BIN/xray version 2>/dev/null | head -1 | awk '{print $2}')
+    xray_ver=$($INSTALL_BIN/xray version 2>/dev/null | awk 'NR==1{print $2}')
   fi
 
   echo ""

@@ -1,11 +1,11 @@
 # EdgeNest
 
-**[English](README.md) · [简体中文](README_ZH.md) · [繁體中文](README_ZH-TW.md) · [فارسی](README_FA.md) · [Русский](README_RU.md)**
+**[English](README.md) · [简体中文](README_ZH.md) · [繁體中文](README_ZH-TW.md) · [فارسی](README_FA.md) · [Русский](README_RU.md) · [Tiếng Việt](README_VI.md)**
 
 > A self-hosted proxy node management panel — dual-engine, wizard-driven, one-command deploy.
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-![Version](https://img.shields.io/badge/version-1.12.0624-green.svg)
+![Version](https://img.shields.io/badge/version-1.20.0626-green.svg)
 ![Engine](https://img.shields.io/badge/engine-sing--box%20%2B%20Xray-orange.svg)
 
 EdgeNest helps users in network-restricted environments reach AI tools, technical documentation, and learning resources reliably. A single command brings the panel, subscription delivery, and proxy engines up on your own VPS, managing multi-protocol inbounds, traffic quotas, certificates, and outbound optimization in one place — all through a graphical interface, with no hand-editing of config files.
@@ -14,21 +14,23 @@ EdgeNest helps users in network-restricted environments reach AI tools, technica
 
 ## Screenshots
 
-**Wizard-driven creation: pick by use case, EdgeNest pre-selects the protocol mix and drops you into quick create.**
+_The panel ships in 6 languages — switch the README language above to see the screenshots localized._
 
-![Create inbound by scenario](docs/screenshots/01-create-inbound-scenarios.jpg)
+**All 11 inbound protocols at a glance — popularity, whether a domain is needed, CDN / Argo support, and network resilience.**
 
-**All 11 inbound protocols at a glance: popularity, whether a domain is needed, CDN / Argo support, and network resilience.**
+![Protocol guide](docs/screenshots/en/protocols.jpg)
 
-![Protocol guide](docs/screenshots/02-protocol-guide.jpg)
+**Pick the client apps you'll use — EdgeNest tailors each inbound and generates a ready-to-import config per client.**
 
-**One-click category routing: send traffic per service category (AI / streaming / developer tools, etc.) to the right outbound.**
+![Pick clients](docs/screenshots/en/clients.jpg)
 
-![Routing rules](docs/screenshots/03-routing-rules.jpg)
+**Optional CDN front — clients connect via a Cloudflare preferred IP for speed, while the real server IP stays private.**
 
-**Subscriptions per client: pick the clients you'll subscribe from, and EdgeNest generates each in its own format — connect on import.**
+![CDN front](docs/screenshots/en/cdn.jpg)
 
-![Pick clients](docs/screenshots/04-clients.jpg)
+**Optional Argo tunnel — clients connect through a Cloudflare tunnel, with no need to expose the server IP or open a port.**
+
+![Argo tunnel](docs/screenshots/en/argo.jpg)
 
 ---
 
@@ -64,6 +66,8 @@ EdgeNest helps users in network-restricted environments reach AI tools, technica
 
 Two ways to install — pick either. Right after install, note the printed credentials and change the password on first login.
 
+**Requirements:** a fresh 64-bit Linux VPS (see [Supported Platforms](#supported-platforms)) with root and a working package manager + internet. The installer auto-installs everything it needs (curl, git, sqlite3, iptables, …) and prefers prebuilt binaries, so a **1-core / 1 GB (even 512 MB) VPS installs without compiling anything**. On ultra-minimal images that ship without `curl` or even `sudo`, just run the installer as `root` — it pulls in what it needs.
+
 ### Method A: git clone (recommended, tracks the latest release)
 
 ```bash
@@ -82,7 +86,7 @@ By default the installer downloads a prebuilt artifact from the GitHub Release, 
 The tarball bundles the `edgenest` and `sing-box` binaries, which the installer reuses directly — skipping both the download and any on-host compile. Handy for low-memory machines or offline distribution.
 
 ```bash
-VER=1.12.0624
+VER=1.20.0626
 ARCH=amd64   # use arm64 on ARM64 machines
 curl -fsSL -O https://github.com/aipo-lenshow/EdgeNest/releases/download/v${VER}/edgenest-${VER}-linux-${ARCH}.tar.gz
 tar -xzf edgenest-${VER}-linux-${ARCH}.tar.gz
@@ -99,6 +103,10 @@ sudo bash scripts/install.sh
 5. Prints the panel URL, the initial username (`EdgeNest`), and a random password
 
 For unattended installs use `sudo bash scripts/install.sh --yes` (all defaults); to uninstall, run `sudo bash scripts/uninstall.sh`, which cleans up fully and keeps your data by default.
+
+### Managing from the server
+
+After install, run **`edgenest`** on the server any time for a management menu — view the panel URL and admin account, restart / stop / start the service, tail live logs, reset the admin password, upgrade to the latest stable release, and uninstall. It's the quickest way back to the panel URL if you didn't bookmark it.
 
 ---
 
@@ -138,7 +146,7 @@ English · 简体中文 · 繁體中文 · فارسی (RTL) · Русский ·
 | Variable | Default | Purpose |
 |---|---|---|
 | `EDGENEST_LANG` | detected from `$LANG` | Panel and installer language (`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`) |
-| `EDGENEST_VERSION` | `1.12.0624` | Version used for the prebuilt artifact download |
+| `EDGENEST_VERSION` | `1.20.0626` | Version used for the prebuilt artifact download |
 | `EDGENEST_RELEASE_BASE` | GitHub Release download base | Base URL for prebuilt artifacts |
 | `SINGBOX_VERSION` | `1.13.13` | sing-box version (always built with the `with_v2ray_api` traffic-stats tag) |
 | `XRAY_VERSION` | `26.3.27` | Xray version (optional) |

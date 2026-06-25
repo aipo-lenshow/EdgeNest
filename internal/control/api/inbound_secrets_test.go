@@ -29,7 +29,7 @@ func TestAutofill_VLESSReality_GeneratesKeypair(t *testing.T) {
 	if len(sids) == 0 {
 		t.Errorf("short_ids should be filled")
 	}
-	if s["sni"] != "www.microsoft.com" {
+	if s["sni"] != "www.apple.com" {
 		t.Errorf("sni default missing: %v", s["sni"])
 	}
 	if s["flow"] != "xtls-rprx-vision" {

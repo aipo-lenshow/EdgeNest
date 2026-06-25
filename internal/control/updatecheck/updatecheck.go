@@ -29,7 +29,7 @@ const (
 	// repo is private the call 404s and we silently keep the last cache.
 	releasesURL = "https://api.github.com/repos/aipo-lenshow/EdgeNest/releases/latest"
 
-	checkInterval = 6 * time.Hour
+	checkInterval = 1 * time.Hour
 	startupDelay  = 30 * time.Second
 )
 
@@ -112,6 +112,32 @@ func Status(s *store.Store, current string) (latest string, available bool) {
 		return "", false
 	}
 	return latest, Newer(current, latest)
+}
+
+// StatusLive is Status with a forced fresh GitHub check first, for explicit
+// operator-initiated upgrade actions (CLI menu, panel button, bot /upgrade).
+// The passive cache only refreshes every checkInterval (1h), so right after a
+// release it still holds the previous tag — gating an upgrade on it tells the
+// operator "already on the latest" for up to 1h after a newer version shipped
+// (observed on a box that had started before the release was published). An
+// explicit "upgrade now" must reflect reality, so we fetch live; on a network /
+// rate-limit failure we fall back to the cached value so the action degrades
+// gracefully instead of erroring. A successful fetch also refreshes the cache
+// for the passive readers. Unlike Status it ignores keyEnabled: that flag
+// governs the passive periodic nag, not a check the operator just asked for.
+func StatusLive(s *store.Store, current string) (latest string, available bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), httpClient.Timeout)
+	defer cancel()
+	if tag, err := fetchLatest(ctx); err == nil && tag != "" {
+		_ = s.SetSetting(keyLatest, tag)
+		_ = s.SetSetting(keyCheckedAt, strconv.FormatInt(time.Now().Unix(), 10))
+		return tag, Newer(current, tag)
+	}
+	cached, _ := s.GetSetting(keyLatest)
+	if cached == "" {
+		return "", false
+	}
+	return cached, Newer(current, cached)
 }
 
 // Newer reports whether latest is a strictly newer EdgeNest version than

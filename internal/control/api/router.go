@@ -57,6 +57,11 @@ func (h *Handler) NewRouter() *gin.Engine {
 		authed.GET("/engine/status", h.EngineStatus)
 		authed.POST("/engine/restart", h.RestartEngine)
 
+		// Self-upgrade: live "check now" + kick off (detached) + poll status.
+		authed.GET("/version/check", h.VersionCheck)
+		authed.POST("/upgrade", h.Upgrade)
+		authed.GET("/upgrade/status", h.UpgradeStatus)
+
 		// Inbound CRUD
 		authed.GET("/inbounds", h.ListInbounds)
 		authed.POST("/inbounds", h.CreateInbound)

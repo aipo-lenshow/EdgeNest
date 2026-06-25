@@ -27,6 +27,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     refetchOnWindowFocus: false,
   });
 
+  // Update hint for the "newer version available" dot next to the About nav item
+  // — a global signal visible from any page. Hits /version/check (a live GitHub
+  // lookup, cache fallback) once per panel session, so opening the panel surfaces
+  // a fresh release within seconds instead of waiting on the hourly background
+  // check; staleTime keeps it from re-firing on every navigation. The call also
+  // refreshes the server-side cache the About page and bot read.
+  const { data: vcheck } = useQuery({
+    queryKey: ["version-check"],
+    queryFn: () =>
+      call<{ update_available: boolean; latest_version: string }>(
+        // auto=1: this automatic on-load check honours the "update check" opt-out
+        // (the manual "check now" button on the About page omits it and always
+        // checks live).
+        api.get("/version/check", { params: { auto: 1 } }),
+      ),
+    staleTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const updateAvailable = !!vcheck?.update_available;
+
   // Adopt the panel-wide display timezone so every timestamp (via fmtTime)
   // renders consistently regardless of which browser the operator uses. Empty
   // display_tz means "follow server", so fall back to the detected server zone.
@@ -98,7 +118,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 }`
               }
             >
-              {t(n.key)}
+              <span className="flex items-center justify-between gap-2">
+                <span>{t(n.key)}</span>
+                {n.to === "/about" && updateAvailable && (
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full bg-amber-400"
+                    title={t("nav.updateBadge")}
+                    aria-label={t("nav.updateBadge")}
+                  />
+                )}
+              </span>
             </NavLink>
           ))}
         </nav>
