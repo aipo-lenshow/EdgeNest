@@ -126,7 +126,9 @@ func (h *Handler) newEnforcer() *quota.Enforcer {
 				Meta:      metaJSON,
 				CreatedAt: time.Now().Unix(),
 			}
-			_ = h.store.DB().Create(row).Error
+			if err := h.store.DB().Create(row).Error; err != nil {
+				log.Printf("quota: warn: audit write failed: %v", err)
+			}
 		},
 	}
 }

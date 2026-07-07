@@ -20,14 +20,38 @@ type Store struct {
 
 // Open opens (creating if needed) the SQLite database at path and runs
 // AutoMigrate for all models.
+//
+// Concurrency: the process has many concurrent writers (traffic poller, quota
+// scheduler, audit log on every mutating request, alert/notify runners, update
+// check) plus out-of-process ones (the CLI management menu and upgrade.sh both
+// open the same file while the service runs). SQLite allows one writer at a
+// time, so without tuning a second concurrent write fails immediately with
+// SQLITE_BUSY ("database is locked") — and most of those writers drop the
+// error, silently losing traffic/audit rows. Three measures close that hole:
+//   - busy_timeout(5000): a blocked writer waits up to 5s instead of failing.
+//   - journal_mode(WAL): readers no longer block the writer (and vice versa),
+//     which also covers the cross-process CLI/upgrade.sh access. WAL adds
+//     -wal/-shm sidecar files next to the DB; backup (VACUUM INTO / sqlite3
+//     .backup) and restore (ApplyPendingRestore clears stale sidecars) are
+//     already WAL-safe.
+//   - a single pooled connection: in-process writes serialize in Go instead of
+//     colliding in SQLite. WAL would allow concurrent reads, but at EdgeNest's
+//     query rate one connection is plenty and is the simplest arrangement that
+//     eliminates in-process BUSY entirely.
 func Open(path string) (*Store, error) {
+	dsn := "file:" + path +
+		"?_pragma=busy_timeout(5000)" +
+		"&_pragma=journal_mode(WAL)"
 	// Silent: our repository methods handle ErrRecordNotFound explicitly, so
 	// GORM's default "record not found" warnings would just be noise.
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		return nil, err
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
 	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return nil, err

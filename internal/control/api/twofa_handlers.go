@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -200,7 +201,11 @@ func (h *Handler) verifyTwoFA(admin *model.Admin, code string) bool {
 			codes = append(codes[:i], codes[i+1:]...)
 			enc, _ := json.Marshal(codes)
 			admin.RecoveryCodes = string(enc)
-			_ = h.store.UpdateAdmin(admin)
+			// A failed write leaves the recovery code un-consumed (reusable),
+			// so the failure must at least be visible.
+			if err := h.store.UpdateAdmin(admin); err != nil {
+				log.Printf("2fa: warn: consume recovery code for %s: %v", admin.Username, err)
+			}
 			return true
 		}
 	}

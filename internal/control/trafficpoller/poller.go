@@ -20,6 +20,7 @@ package trafficpoller
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
@@ -149,10 +150,16 @@ func (p *Poller) tick(ctx context.Context) {
 	// "today" row never matches and traffic always reads 0.
 	today := time.Now().In(p.displayLocation()).Format("2006-01-02")
 	for email, d := range perEmail {
-		_ = p.store.AddUserTraffic(email, d[0], d[1])
+		// A failed write loses the delta for good (the per-source baseline has
+		// already advanced), so at least make it visible.
+		if err := p.store.AddUserTraffic(email, d[0], d[1]); err != nil {
+			log.Printf("trafficpoller: warn: credit traffic for %s: %v", email, err)
+		}
 		// Same delta into the per-day bucket so month-to-date / range queries
 		// stay consistent with the cumulative counter.
-		_ = p.store.AddDailyTraffic(today, email, d[0], d[1])
+		if err := p.store.AddDailyTraffic(today, email, d[0], d[1]); err != nil {
+			log.Printf("trafficpoller: warn: credit daily traffic for %s: %v", email, err)
+		}
 	}
 
 	// New bytes just landed in the store — let the enforcer re-check now rather

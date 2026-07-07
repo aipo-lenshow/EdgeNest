@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -93,13 +94,15 @@ func (r *Runner) audit(action, resource string, meta map[string]string) {
 			metaJSON = string(b)
 		}
 	}
-	_ = r.store.DB().Create(&model.AuditLog{
+	if err := r.store.DB().Create(&model.AuditLog{
 		Actor:     "telegram",
 		Action:    action,
 		Resource:  resource,
 		Meta:      metaJSON,
 		CreatedAt: time.Now().Unix(),
-	}).Error
+	}).Error; err != nil {
+		log.Printf("botrunner: warn: audit write failed: %v", err)
+	}
 }
 
 // svcErrMsg maps a usersvc.Error to a localized one-line reply.

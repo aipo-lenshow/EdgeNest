@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -260,7 +261,9 @@ func (s *Service) Update(ctx context.Context, nodeID uint, email string, p Updat
 			for _, sub := range subs {
 				if idSet[sub.ClientID] && sub.Name == email {
 					sub.Name = rename
-					_ = s.Store.UpdateSubscriptionName(sub.ID, rename)
+					if err := s.Store.UpdateSubscriptionName(sub.ID, rename); err != nil {
+						log.Printf("usersvc: warn: rename subscription %d: %v", sub.ID, err)
+					}
 				}
 			}
 		}
@@ -419,7 +422,9 @@ func (s *Service) reconcileUserInbounds(email string, targetIDs []uint, nodeID u
 		if !survivingIDs[newSeed] {
 			newSeed = survivors[0].ID
 		}
-		_ = s.Store.UpdateSubscriptionScope(sub.ID, newSeed, string(allowed))
+		if err := s.Store.UpdateSubscriptionScope(sub.ID, newSeed, string(allowed)); err != nil {
+			log.Printf("usersvc: warn: rescope subscription %d: %v", sub.ID, err)
+		}
 	}
 	return nil
 }

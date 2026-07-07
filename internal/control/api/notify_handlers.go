@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,11 +37,16 @@ func (h *Handler) UpdateNotify(c *gin.Context) {
 		core.Fail(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
+	save := func(k, v string) {
+		if err := h.store.SetSetting(k, v); err != nil {
+			log.Printf("notify: warn: save setting %s: %v", k, err)
+		}
+	}
 	set := func(k string, v *string) {
 		if v == nil {
 			return
 		}
-		_ = h.store.SetSetting(k, *v)
+		save(k, *v)
 	}
 	boolStr := func(b bool) string {
 		if b {
@@ -49,16 +55,16 @@ func (h *Handler) UpdateNotify(c *gin.Context) {
 		return "false"
 	}
 	if req.Enabled != nil {
-		_ = h.store.SetSetting(settingNotifyEnabled, boolStr(*req.Enabled))
+		save(settingNotifyEnabled, boolStr(*req.Enabled))
 	}
 	if req.BotEnabled != nil {
-		_ = h.store.SetSetting(settingBotEnabled, boolStr(*req.BotEnabled))
+		save(settingBotEnabled, boolStr(*req.BotEnabled))
 	}
 	if req.AlertsEnabled != nil {
-		_ = h.store.SetSetting(settingAlertsEnabled, boolStr(*req.AlertsEnabled))
+		save(settingAlertsEnabled, boolStr(*req.AlertsEnabled))
 	}
 	if req.UpdateCheck != nil {
-		_ = h.store.SetSetting(settingUpdateCheckEnabled, boolStr(*req.UpdateCheck))
+		save(settingUpdateCheckEnabled, boolStr(*req.UpdateCheck))
 	}
 	if req.AdminChatIDs != nil {
 		// Normalize: trim + drop blanks; store as JSON []string. Empty list →
@@ -70,7 +76,7 @@ func (h *Handler) UpdateNotify(c *gin.Context) {
 			}
 		}
 		if b, err := json.Marshal(ids); err == nil {
-			_ = h.store.SetSetting(settingBotAdminChatIDs, string(b))
+			save(settingBotAdminChatIDs, string(b))
 		}
 	}
 	set(settingNotifyTelegramToken, req.TelegramToken)
@@ -86,9 +92,9 @@ func (h *Handler) UpdateNotify(c *gin.Context) {
 		// confirmation) instead of being suppressed because a summary already
 		// went out earlier today under the old time.
 		if prev, _ := h.store.GetSetting(settingNotifyDailyHour); prev != strconv.Itoa(hr) {
-			_ = h.store.SetSetting("notify_last_sent_date", "")
+			save("notify_last_sent_date", "")
 		}
-		_ = h.store.SetSetting(settingNotifyDailyHour, strconv.Itoa(hr))
+		save(settingNotifyDailyHour, strconv.Itoa(hr))
 	}
 	if req.DailyMinute != nil {
 		mn := *req.DailyMinute
@@ -98,9 +104,9 @@ func (h *Handler) UpdateNotify(c *gin.Context) {
 		}
 		// Same re-arm intent as the hour: changing the minute re-arms today.
 		if prev, _ := h.store.GetSetting(settingNotifyDailyMinute); prev != strconv.Itoa(mn) {
-			_ = h.store.SetSetting("notify_last_sent_date", "")
+			save("notify_last_sent_date", "")
 		}
-		_ = h.store.SetSetting(settingNotifyDailyMinute, strconv.Itoa(mn))
+		save(settingNotifyDailyMinute, strconv.Itoa(mn))
 	}
 	h.auditLog(c, "settings.notify.update", "settings", nil)
 	core.OK(c, gin.H{"ok": true})

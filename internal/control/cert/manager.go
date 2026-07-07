@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -228,10 +229,12 @@ func (m *Manager) recordFailure(nodeID uint, req IssueRequest, err error) {
 	if existing != nil {
 		existing.LastError = err.Error()
 		existing.UpdatedAt = now
-		_ = m.store.DB().Save(existing).Error
+		if err := m.store.DB().Save(existing).Error; err != nil {
+			log.Printf("cert: warn: record issue failure for %s: %v", req.Domain, err)
+		}
 		return
 	}
-	_ = m.store.DB().Create(&model.Certificate{
+	if err := m.store.DB().Create(&model.Certificate{
 		NodeID:      nodeID,
 		Domain:      req.Domain,
 		Mode:        req.Mode,
@@ -241,7 +244,9 @@ func (m *Manager) recordFailure(nodeID uint, req IssueRequest, err error) {
 		AutoRenew:   true,
 		CreatedAt:   now,
 		UpdatedAt:   now,
-	}).Error
+	}).Error; err != nil {
+		log.Printf("cert: warn: record issue failure for %s: %v", req.Domain, err)
+	}
 }
 
 func (m *Manager) findCert(nodeID uint, domain string) (*model.Certificate, error) {

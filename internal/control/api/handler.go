@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -102,5 +103,7 @@ func (h *Handler) writeAudit(c *gin.Context, action, resource string, meta map[s
 		Meta:      metaJSON,
 		CreatedAt: time.Now().Unix(),
 	}
-	_ = h.store.DB().Create(row).Error
+	if err := h.store.DB().Create(row).Error; err != nil {
+		log.Printf("audit: warn: write failed (%s %s): %v", action, resource, err)
+	}
 }

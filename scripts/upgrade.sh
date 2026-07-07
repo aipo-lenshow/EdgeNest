@@ -160,7 +160,11 @@ rollback() {
   log "ROLLBACK: restoring previous binary + DB"
   local ok=1
   if [ -f "$BIN_BAK" ]; then install -m 0755 "$BIN_BAK" "$INSTALL_BIN" || ok=0; else ok=0; fi
-  [ -f "$DB_BAK" ] && { cp -f "$DB_BAK" "$DB" || ok=0; }
+  # Swap the DB with the service stopped: SQLite runs in WAL mode, and a live
+  # process could checkpoint stale -wal content into the restored .db (the
+  # sidecars must also go, or they get replayed into it on next open).
+  systemctl stop edgenest >>"$LOG" 2>&1 || true
+  [ -f "$DB_BAK" ] && { rm -f "$DB-wal" "$DB-shm"; cp -f "$DB_BAK" "$DB" || ok=0; }
   systemctl restart edgenest >>"$LOG" 2>&1 || ok=0
   sleep 3
   read_current_version
