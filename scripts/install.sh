@@ -47,7 +47,7 @@ Usage:
 
 Env var overrides:
   EDGENEST_LANG          en | zh | zh-TW | fa | ru | vi (overrides $LANG-detected default; --lang= wins over this)
-  EDGENEST_VERSION       (default 1.20.0626, used for prebuilt download URL)
+  EDGENEST_VERSION       (default 1.21.0708, used for prebuilt download URL)
   EDGENEST_RELEASE_BASE  (default https://github.com/aipo-lenshow/EdgeNest/releases/download)
   SINGBOX_VERSION        (default 1.13.13; always built/obtained with the with_v2ray_api tag)
   XRAY_VERSION           (default 26.3.27)
@@ -59,7 +59,7 @@ EOF
 done
 
 # ---- Pinned versions ----
-EDGENEST_VERSION="${EDGENEST_VERSION:-1.20.0626}"
+EDGENEST_VERSION="${EDGENEST_VERSION:-1.21.0708}"
 EDGENEST_RELEASE_BASE="${EDGENEST_RELEASE_BASE:-https://github.com/aipo-lenshow/EdgeNest/releases/download}"
 SINGBOX_VERSION="${SINGBOX_VERSION:-1.13.13}"
 XRAY_VERSION="${XRAY_VERSION:-26.3.27}"
