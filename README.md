@@ -139,6 +139,16 @@ English · 简体中文 · 繁體中文 · فارسی (RTL) · Русский ·
 
 ---
 
+## Clients
+
+EdgeNest issues the nodes; these connect to them. Each is a separate project with its own
+version numbers.
+
+- **[EdgeNest for macOS, Windows, Android and iOS](https://github.com/aipo-lenshow/EdgeNest-App)** — import a subscription by QR code or URL, with rule-based routing, groups and per-app routing.
+- **[EdgeNest Router](https://github.com/aipo-lenshow/EdgeNest-Router)** — installs on an OpenWrt-family router so a whole LAN shares one set of routing rules.
+
+---
+
 ## Environment Variables
 
 `install.sh` honors the following environment variables to override default behavior (command-line flags `--lang=` / `--yes` / `--no-bbr` / `--no-prebuilt` are also available):

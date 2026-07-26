@@ -139,6 +139,15 @@ English · 简体中文 · 繁體中文 · فارسی (RTL) · Русский ·
 
 ---
 
+## کلاینت‌ها
+
+EdgeNest نودها را می‌سازد و پروژه‌های زیر به آن‌ها متصل می‌شوند. این‌ها پروژه‌هایی مستقل با شماره‌نسخهٔ جداگانه هستند.
+
+- **[EdgeNest برای macOS، Windows، Android و iOS](https://github.com/aipo-lenshow/EdgeNest-App)**
+- **[EdgeNest Router](https://github.com/aipo-lenshow/EdgeNest-Router)** — برای روترهای مبتنی بر OpenWrt.
+
+---
+
 ## متغیرهای محیطی
 
 `install.sh` متغیرهای محیطی زیر را برای بازنویسی رفتار پیش‌فرض می‌پذیرد (پرچم‌های خط فرمان `--lang=` / `--yes` / `--no-bbr` / `--no-prebuilt` نیز در دسترس‌اند):

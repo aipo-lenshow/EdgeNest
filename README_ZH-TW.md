@@ -139,6 +139,15 @@ English · 简体中文 · 繁體中文 · فارسی（RTL）· Русский 
 
 ---
 
+## 用戶端
+
+EdgeNest 負責產生節點，下面這些負責連線。它們是獨立專案，各自有獨立的版本號。
+
+- **[EdgeNest 用戶端（macOS / Windows / Android / iOS）](https://github.com/aipo-lenshow/EdgeNest-App)** —— 掃碼或貼上訂閱即可接入，支援規則分流、分組與依程式分流。
+- **[EdgeNest Router](https://github.com/aipo-lenshow/EdgeNest-Router)** —— 安裝在 OpenWrt 系路由器上，讓整個區域網路共用同一套分流規則。
+
+---
+
 ## 環境變數
 
 `install.sh` 支援以下環境變數覆寫預設行為（也可用 `--lang=` / `--yes` / `--no-bbr` / `--no-prebuilt` 等命令列參數）：

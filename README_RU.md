@@ -139,6 +139,15 @@ English · 简体中文 · 繁體中文 · فارسی (RTL) · Русский ·
 
 ---
 
+## Клиенты
+
+EdgeNest выдаёт узлы, а эти проекты к ним подключаются. Это отдельные проекты со своими номерами версий.
+
+- **[EdgeNest для macOS, Windows, Android и iOS](https://github.com/aipo-lenshow/EdgeNest-App)**
+- **[EdgeNest Router](https://github.com/aipo-lenshow/EdgeNest-Router)** — для роутеров на базе OpenWrt.
+
+---
+
 ## Переменные окружения
 
 `install.sh` учитывает следующие переменные окружения для переопределения поведения по умолчанию (также доступны флаги `--lang=` / `--yes` / `--no-bbr` / `--no-prebuilt`):

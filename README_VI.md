@@ -139,6 +139,15 @@ English · 简体中文 · 繁體中文 · فارسی (RTL) · Русский ·
 
 ---
 
+## Ứng dụng khách
+
+EdgeNest tạo ra các node; những dự án dưới đây kết nối tới chúng. Đây là các dự án riêng biệt, có số phiên bản riêng.
+
+- **[EdgeNest cho macOS, Windows, Android và iOS](https://github.com/aipo-lenshow/EdgeNest-App)**
+- **[EdgeNest Router](https://github.com/aipo-lenshow/EdgeNest-Router)** — dành cho router dùng OpenWrt.
+
+---
+
 ## Biến môi trường
 
 `install.sh` đọc các biến môi trường sau để ghi đè hành vi mặc định (cũng có các cờ dòng lệnh `--lang=` / `--yes` / `--no-bbr` / `--no-prebuilt`):
