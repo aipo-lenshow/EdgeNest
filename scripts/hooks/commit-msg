@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Commit-message scan — single-maintainer repository: commit messages must not
+# carry co-author trailers (they alter the published authorship of the repo).
+# Installed by scripts/install-hooks.sh.
+
+set -u
+MSG="$1"
+FAIL=0
+
+if grep -qiE '^[[:space:]]*co-authored-by:' "$MSG"; then
+  printf '\033[31m✗ Co-author trailer in commit message — remove it (single-maintainer repository)\033[0m\n' >&2
+  FAIL=1
+fi
+
+# Optional machine-local checks maintained outside this repository.
+if [ -f "$HOME/dotfiles/scan/private-msg-checks.sh" ]; then
+  . "$HOME/dotfiles/scan/private-msg-checks.sh"
+fi
+
+exit "$FAIL"

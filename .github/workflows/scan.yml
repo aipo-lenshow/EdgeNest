@@ -1,0 +1,156 @@
+# Repository hygiene scan.
+#
+# Fails the build when content that must never be published shows up in the
+# tree or in commit metadata:
+#   - RFC1918 private IP literals
+#   - SSH/PGP private key blocks
+#   - Known API token shapes (AWS / Slack / GitHub / generic secret keys)
+#   - Co-author trailers (single-maintainer repository: every mainline commit
+#     is authored and published by the maintainer identity; external PRs are
+#     reviewed by a human before merge)
+#
+# The maintainer can configure additional repository-specific patterns via the
+# EXTRA_SCAN_PATTERNS repository secret (one PCRE per line, `#` comments
+# allowed). That step is skipped when the secret is not available (e.g. on
+# forked PRs — those are reviewed manually anyway).
+#
+# Scanner sources necessarily contain the patterns they search for, so the
+# scanner files themselves are exempt from the tree scan.
+
+name: hygiene-scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan tree
+        shell: bash
+        run: |
+          set -uo pipefail
+          FAIL=0
+          # Scanner sources are exempt (they contain the patterns they search for).
+          X=(':(exclude)scripts/hooks/pre-commit'
+             ':(exclude)scripts/hooks/commit-msg'
+             ':(exclude).github/workflows/scan.yml')
+          # Test fixtures may carry synthetic endpoints / keys / CIDR examples;
+          # lockfiles carry long hashes.
+          XT=("${X[@]}"
+              ':(exclude)*_test.go' ':(exclude)*.test.ts' ':(exclude)*.test.tsx'
+              ':(exclude)*.spec.ts' ':(exclude)*.spec.tsx' ':(exclude)testdata/'
+              ':(exclude)go.sum' ':(exclude)*package-lock.json')
+
+          echo '── RFC1918 private IP literals ──'
+          if git grep -nEI '\b192\.168\.[0-9]{1,3}\.[0-9]{1,3}\b|\b10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b|\b172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3}\b' -- . "${XT[@]}"; then
+            echo '::error::RFC1918 private IP literal found — replace with a placeholder or environment value'
+            FAIL=1
+          fi
+
+          echo '── Private key blocks ──'
+          if git grep -nEI -e '-{5}BEGIN ([A-Z]+ )?PRIVATE KEY-{5}' -- . "${X[@]}"; then
+            echo '::error::Private key block found'
+            FAIL=1
+          fi
+
+          echo '── Known API token shapes ──'
+          if git grep -nEI '\bAKIA[0-9A-Z]{16}\b|\bxox[baprs]-[A-Za-z0-9-]{10,}\b|\b(ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{36,}\b|\bsk-[A-Za-z0-9]{32,}\b|\b(ya29|AIza)\.?[A-Za-z0-9_-]{20,}\b' -- . "${XT[@]}"; then
+            echo '::error::Known token shape found'
+            FAIL=1
+          fi
+
+          echo '── Co-author trailers in files ──'
+          if git grep -nIiE '^[[:space:]]*co-authored-by:' -- . "${X[@]}"; then
+            echo '::error::Co-author trailer found in tree (single-maintainer repository)'
+            FAIL=1
+          fi
+
+          echo '── Token-shaped long strings (advisory) ──'
+          # High-entropy 40+ char strings are worth a look but too noisy to fail
+          # on (hashes, integrity fields, minified assets) — warning only.
+          LONG=$(git grep -nEI '[A-Za-z0-9_-]{40,}' -- . "${XT[@]}" ':(exclude)*.svg' ':(exclude)*.min.*' \
+                   | grep -viE '(commit|sha[0-9]*|hash|h1:|integrity|resolved|blake2|checksum)' \
+                   | head -20 || true)
+          if [ -n "$LONG" ]; then
+            echo '::warning::Long token-shaped strings present — verify they are not secrets:'
+            echo "$LONG"
+          fi
+
+          exit "$FAIL"
+
+      - name: Scan commit metadata
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            git fetch -q origin "$GITHUB_BASE_REF"
+            RANGE="origin/${GITHUB_BASE_REF}..HEAD"
+            STRICT=0   # external PRs get a human review; warn only
+          else
+            RANGE="-50"
+            STRICT=1
+          fi
+
+          echo '── Co-author trailers in commit messages ──'
+          HITS=$(git log $RANGE --format='%H%n%B%n---' | grep -iE '^[[:space:]]*co-authored-by:' || true)
+          if [ -n "$HITS" ]; then
+            if [ "$STRICT" -eq 1 ]; then
+              echo '::error::Co-author trailer in commit message (single-maintainer repository) — reword and force-push with lease'
+              echo "$HITS"
+              exit 1
+            fi
+            echo '::warning::Co-author trailer in PR commits — must be removed before merge'
+            echo "$HITS"
+          fi
+
+          echo '── Author identities ──'
+          OTHERS=$(git log $RANGE --format='%ae%n%ce' | sort -u \
+                     | grep -ivx 'aipo@ailenshow\.com' | grep -ivx 'noreply@github\.com' || true)
+          if [ -n "$OTHERS" ]; then
+            echo '::warning::Commits carry non-maintainer identities (expected only on external PRs):'
+            echo "$OTHERS"
+          fi
+          echo 'done'
+
+      - name: Scan maintainer-configured extra patterns
+        shell: bash
+        env:
+          EXTRA: ${{ secrets.EXTRA_SCAN_PATTERNS }}
+        run: |
+          set -uo pipefail
+          if [ -z "${EXTRA:-}" ]; then
+            echo 'No extra patterns configured — skipped'
+            exit 0
+          fi
+          FAIL=0
+          N=0
+          X=(':(exclude)scripts/hooks/pre-commit'
+             ':(exclude)scripts/hooks/commit-msg'
+             ':(exclude).github/workflows/scan.yml')
+          while IFS= read -r RE; do
+            [ -z "$RE" ] && continue
+            case "$RE" in '#'*) continue ;; esac
+            N=$((N+1))
+            # File names / commit hashes only — never echo the pattern itself.
+            FILES=$(git grep -lPI -e "$RE" -- . "${X[@]}" || true)
+            if [ -n "$FILES" ]; then
+              echo "::error::extra pattern #$N matched in:"
+              echo "$FILES"
+              FAIL=1
+            fi
+            MSGS=$(git log -50 -P --grep="$RE" --format='%H' || true)
+            if [ -n "$MSGS" ]; then
+              echo "::error::extra pattern #$N matched in commit message(s):"
+              echo "$MSGS"
+              FAIL=1
+            fi
+          done <<< "$EXTRA"
+          [ "$FAIL" -eq 0 ] && echo "✓ $N extra patterns clean"
+          exit "$FAIL"

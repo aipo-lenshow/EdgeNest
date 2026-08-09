@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Pre-commit scan — blocks a commit when the staged changes contain content
+# that must never be published from this repository:
+#   - RFC1918 private IP literals
+#   - SSH/PGP private key blocks
+#   - Known API token shapes
+#   - Files under .internal/ (local development notes, gitignored)
+#   - Co-author trailers (single-maintainer repository)
+#
+# Install with: bash scripts/install-hooks.sh
+# Bypass (not recommended): git commit --no-verify
+
+set -u
+
+R=$'\033[31m'; G=$'\033[32m'; N=$'\033[0m'
+FAIL=0
+err() { printf '%s✗ %s%s\n' "$R" "$*" "$N" >&2; FAIL=1; }
+
+# Added lines of the staged diff. Scanner sources are excluded — they contain
+# the patterns they search for.
+STAGED=$(git diff --cached -U0 -- \
+  ':(exclude)scripts/hooks/pre-commit' \
+  ':(exclude)scripts/hooks/commit-msg' \
+  ':(exclude).github/workflows/scan.yml' \
+  | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+
+hits=$(printf '%s\n' "$STAGED" | grep -E '\b192\.168\.[0-9]{1,3}\.[0-9]{1,3}\b|\b10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b|\b172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3}\b' || true)
+if [ -n "$hits" ]; then
+  err "Staged changes contain RFC1918 private IPs:"
+  printf '%s\n' "$hits" | head -10 >&2
+  echo "  → replace with a placeholder or read it from the environment" >&2
+fi
+
+hits=$(printf '%s\n' "$STAGED" | grep -E '\-{5}BEGIN ([A-Z]+ )?PRIVATE KEY\-{5}' || true)
+if [ -n "$hits" ]; then
+  err "Staged changes contain a private key block:"
+  printf '%s\n' "$hits" | head -5 >&2
+fi
+
+hits=$(printf '%s\n' "$STAGED" | grep -E '\bAKIA[0-9A-Z]{16}\b|\bxox[baprs]-[A-Za-z0-9-]{10,}\b|\b(ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{36,}\b|\bsk-[A-Za-z0-9]{32,}\b|\b(ya29|AIza)\.?[A-Za-z0-9_-]{20,}\b' || true)
+if [ -n "$hits" ]; then
+  err "Staged changes contain a known API token shape:"
+  printf '%s\n' "$hits" | head -10 >&2
+fi
+
+internal=$(git diff --cached --name-only | grep -E '^\.internal/' || true)
+if [ -n "$internal" ]; then
+  err "Files under .internal/ are staged (local notes — never committed):"
+  printf '%s\n' "$internal" >&2
+  echo "  → git reset HEAD <file> and retry" >&2
+fi
+
+hits=$(printf '%s\n' "$STAGED" | grep -iE '^\+[[:space:]]*co-authored-by:' || true)
+if [ -n "$hits" ]; then
+  err "Co-author trailer in staged content (single-maintainer repository):"
+  printf '%s\n' "$hits" | head -5 >&2
+fi
+
+# Optional machine-local checks maintained outside this repository.
+if [ -f "$HOME/dotfiles/scan/private-checks.sh" ]; then
+  . "$HOME/dotfiles/scan/private-checks.sh"
+fi
+
+if [ "$FAIL" -ne 0 ]; then
+  exit 1
+fi
+printf '%s✓ pre-commit scan passed%s\n' "$G" "$N"
+exit 0
