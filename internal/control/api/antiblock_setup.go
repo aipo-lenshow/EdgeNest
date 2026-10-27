@@ -59,7 +59,15 @@ func (h *Handler) SetupAntiBlock(c *gin.Context) {
 	case "builtin", "":
 		cfg.GatewayMode = antiblock.GatewayBuiltin
 		cfg.EdgePort = 0
-		if owner := portowner.Find(443); owner != nil && !h.gatewayServes(443) {
+		// A re-run while the gateway already serves on an alternate port
+		// keeps that port: probing would find it busy (by the gateway
+		// itself) and move every CDN node to yet another port.
+		if h.gateway != nil {
+			if st := h.gateway.Status(); st.Mode == gateway.ModeBuiltin && st.Running && st.Port != 443 && portowner.Find(443) != nil {
+				cfg.EdgePort = st.Port
+			}
+		}
+		if owner := portowner.Find(443); cfg.EdgePort == 0 && owner != nil && !h.gatewayServes(443) {
 			alt := 0
 			if h.gateway != nil {
 				alt = h.gateway.FreeAltPort()

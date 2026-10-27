@@ -424,6 +424,9 @@ function QuickSetupCard({ data }: { data: AntiBlockData }) {
     onError: (e: Error) => setMsg({ kind: "err", text: e.message }),
   });
   const owner = data.port443;
+  // The built-in gateway already serves the domain: the card is for
+  // changing the names and re-applying, not a first-time choice.
+  const selfServing = data.gateway.mode === "builtin" && data.gateway.running;
   const disabled = setup.isPending || !edge.trim();
   const choice = (label: string, desc: string, onClick: () => void, primary: boolean) => (
     <div className="grid gap-1 rounded-lg border border-white/10 p-3">
@@ -446,7 +449,12 @@ function QuickSetupCard({ data }: { data: AntiBlockData }) {
           <Input value={direct} onChange={(e) => setDirect(e.target.value)} placeholder="n1.example.com" />
         </Field>
         <p className={`text-sm ${owner ? warn : ok}`}>
-          ● {owner ? t("antiblock.port443Taken", { process: owner.process || "?" }) : t("antiblock.port443Free")}
+          ●{" "}
+          {selfServing
+            ? t("antiblock.portSelf", { port: data.gateway.port || 443 })
+            : owner
+              ? t("antiblock.port443Taken", { process: owner.process || "?" })
+              : t("antiblock.port443Free")}
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {owner
@@ -458,8 +466,12 @@ function QuickSetupCard({ data }: { data: AntiBlockData }) {
               )
             : null}
           {choice(
-            owner ? t("antiblock.quickBuiltinAlt") : t("antiblock.quickBuiltin"),
-            owner ? t("antiblock.quickBuiltinAltDesc", { process: owner.process || "?" }) : t("antiblock.quickBuiltinDesc"),
+            selfServing ? t("antiblock.quickResave") : owner ? t("antiblock.quickBuiltinAlt") : t("antiblock.quickBuiltin"),
+            selfServing
+              ? t("antiblock.quickResaveDesc")
+              : owner
+                ? t("antiblock.quickBuiltinAltDesc", { process: owner.process || "?" })
+                : t("antiblock.quickBuiltinDesc"),
             () => setup.mutate("builtin"),
             !owner,
           )}
