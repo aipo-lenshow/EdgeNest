@@ -249,10 +249,16 @@ func (r *Resolver) directName(in *model.Inbound) string {
 func (r *Resolver) encodingView(in *model.Inbound, c model.Client) (*model.Inbound, string) {
 	host := r.effectiveHost(in, c)
 	if r.argoHost != "" && host == r.argoHost {
-		return edgeEncodingInbound(in, host), host
+		return edgeEncodingInbound(in, host, 443), host
 	}
 	if r.antiblock.EdgeDomain != "" && host == r.antiblock.EdgeDomain {
-		return edgeEncodingInbound(in, host), host
+		// The built-in gateway may sit on another Cloudflare HTTPS port when
+		// 443 belongs to a different program; an external proxy is on 443.
+		port := 443
+		if r.antiblock.GatewayMode != antiblock.GatewayExternal {
+			port = r.antiblock.GatewayPort()
+		}
+		return edgeEncodingInbound(in, host, port), host
 	}
 	return in, host
 }
@@ -278,7 +284,7 @@ func (r *Resolver) encodingView(in *model.Inbound, c model.Client) (*model.Inbou
 // The sentinel cert path is never dereferenced by the encoders (they only
 // test it for non-emptiness) and never reaches the engine renderer, which
 // runs against the real inbound.
-func edgeEncodingInbound(in *model.Inbound, host string) *model.Inbound {
+func edgeEncodingInbound(in *model.Inbound, host string, port int) *model.Inbound {
 	var s map[string]any
 	if in.Settings != "" {
 		_ = json.Unmarshal([]byte(in.Settings), &s)
@@ -294,7 +300,7 @@ func edgeEncodingInbound(in *model.Inbound, host string) *model.Inbound {
 	b, _ := json.Marshal(s)
 	cp := *in
 	cp.Settings = string(b)
-	cp.Port = 443
+	cp.Port = port
 	return &cp
 }
 

@@ -357,15 +357,16 @@ func buildInboundSpec(ib model.Inbound) (core.InboundSpec, error) {
 	}, nil
 }
 
-// gatewayPorts are the openings the built-in edge gateway needs: 443 for the
-// edge domain's HTTPS and 80 for the certificate's HTTP-01 validation. None
+// gatewayPorts are the openings the built-in edge gateway needs: its HTTPS
+// port (443, or the Cloudflare port it moved to) and 80 for the
+// certificate's HTTP-01 validation. None
 // when there is no edge domain or the operator's own web server fronts it.
 func gatewayPorts(ab antiblock.Config) []core.PortRule {
 	if ab.EdgeDomain == "" || ab.GatewayMode == antiblock.GatewayExternal {
 		return nil
 	}
 	return []core.PortRule{
-		{Port: 443, Proto: "tcp", Note: "edgenest:edge-gateway"},
+		{Port: ab.GatewayPort(), Proto: "tcp", Note: "edgenest:edge-gateway"},
 		{Port: 80, Proto: "tcp", Note: "edgenest:edge-gateway-acme"},
 	}
 }

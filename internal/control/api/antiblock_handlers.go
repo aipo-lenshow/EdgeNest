@@ -11,6 +11,7 @@ import (
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/gateway"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/portowner"
 	"github.com/aipo-lenshow/EdgeNest/internal/core"
 )
 
@@ -19,8 +20,14 @@ import (
 // to paste, the edge inbounds it covers, and the mirror-list public key).
 type antiblockView struct {
 	antiblock.Config
-	CaddySnippet string          `json:"caddy_snippet"`
-	Gateway      gateway.Status  `json:"gateway"`
+	// ProxyConfigs are ready-to-paste configs per tool (caddy, nginx) for an
+	// operator whose own web server fronts the edge domain: one rule sending
+	// the whole domain to the gateway's loopback backend.
+	ProxyConfigs map[string]string `json:"proxy_configs,omitempty"`
+	Gateway      gateway.Status    `json:"gateway"`
+	// Port443 is whoever listens on 443 right now (nil = free, or the
+	// built-in gateway itself), for the one-click setup's choice.
+	Port443 *portowner.Owner `json:"port443,omitempty"`
 	EdgeInbounds []edgeInboundVM `json:"edge_inbounds"`
 	MirrorPubKey string          `json:"mirror_pubkey"`
 }
@@ -100,10 +107,6 @@ func (h *Handler) antiblockView(cfg antiblock.Config) antiblockView {
 		cfg.Mirrors = []string{}
 	}
 	edges := h.edgeInbounds()
-	routes := make([]antiblock.EdgeRoute, 0, len(edges))
-	for _, e := range edges {
-		routes = append(routes, antiblock.EdgeRoute{Path: e.Path, Port: e.Port})
-	}
 	pub, _ := antiblock.PublicKey(h.store)
 	view := antiblockView{
 		Config:       cfg,
@@ -115,10 +118,14 @@ func (h *Handler) antiblockView(cfg antiblock.Config) antiblockView {
 		// The gateway may have just resolved auto mode; show the stored value.
 		view.GatewayMode = antiblock.Load(h.store).GatewayMode
 	}
-	// The reverse-proxy snippet is only for operators whose own web server
-	// fronts the edge domain; the built-in gateway needs none.
-	if view.Gateway.Mode != gateway.ModeBuiltin {
-		view.CaddySnippet = antiblock.CaddySnippet(cfg, h.panelPort, h.PanelPath(), routes)
+	// Reverse-proxy configs are only for operators whose own web server
+	// fronts the edge domain (or who are about to choose that); the built-in
+	// gateway needs none.
+	if !h.gatewayServes(443) {
+		view.Port443 = portowner.Find(443)
+	}
+	if view.Gateway.Mode == gateway.ModeExternal || view.Gateway.Mode == gateway.ModeConflict {
+		view.ProxyConfigs = antiblock.ProxyConfigs(cfg, view.Gateway.Backend)
 	}
 	return view
 }

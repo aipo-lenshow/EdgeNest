@@ -97,16 +97,36 @@ func TestMirrorsHeaderVerifies(t *testing.T) {
 	}
 }
 
-func TestCaddySnippet(t *testing.T) {
-	if CaddySnippet(Config{}, 2087, "/ENPanel-x", nil) != "" {
-		t.Fatal("snippet without an edge domain")
+func TestProxyConfigs(t *testing.T) {
+	if ProxyConfigs(Config{}, "127.0.0.1:20000") != nil {
+		t.Fatal("configs without an edge domain")
 	}
-	s := CaddySnippet(Config{EdgeDomain: "cdn.example.com"}, 2087, "/ENPanel-x", []EdgeRoute{{Path: "/a1b2", Port: 20001}})
-	for _, want := range []string{"cdn.example.com {", "handle /sub/*", "127.0.0.1:2087", "handle /a1b2", "127.0.0.1:20001",
-		"handle /ENPanel-x*", "header_regexp Cookie edgenest_gate=", "respond 404"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("snippet missing %q:\n%s", want, s)
+	m := ProxyConfigs(Config{EdgeDomain: "cdn.example.com"}, "127.0.0.1:20000")
+	if m["caddy"] != "cdn.example.com {\n\treverse_proxy 127.0.0.1:20000\n}\n" {
+		t.Fatalf("caddy:\n%s", m["caddy"])
+	}
+	for _, want := range []string{"server_name cdn.example.com;", "proxy_pass http://127.0.0.1:20000;", "Upgrade $http_upgrade", "listen 443 ssl;"} {
+		if !strings.Contains(m["nginx"], want) {
+			t.Errorf("nginx missing %q", want)
 		}
+	}
+}
+
+func TestEdgePortAndOrigin(t *testing.T) {
+	c, err := Normalize(Config{EdgeDomain: "cdn.example.com", EdgePort: 8443})
+	if err != nil || c.GatewayPort() != 8443 || c.EdgeOrigin() != "https://cdn.example.com:8443" {
+		t.Fatalf("%+v %v %s", c, err, c.EdgeOrigin())
+	}
+	c, _ = Normalize(Config{EdgeDomain: "cdn.example.com", EdgePort: 443})
+	if c.EdgePort != 0 || c.EdgeOrigin() != "https://cdn.example.com" {
+		t.Fatalf("443 should canonicalise to 0: %+v", c)
+	}
+	if _, err := Normalize(Config{EdgeDomain: "cdn.example.com", EdgePort: 9999}); err == nil {
+		t.Fatal("non-Cloudflare port accepted")
+	}
+	// An external proxy always serves 443, whatever port was stored.
+	if (Config{EdgeDomain: "cdn.example.com", EdgePort: 8443, GatewayMode: GatewayExternal}).EdgeOrigin() != "https://cdn.example.com" {
+		t.Fatal("external origin must be :443")
 	}
 }
 

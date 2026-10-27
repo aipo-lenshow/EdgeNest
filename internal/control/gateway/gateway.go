@@ -23,11 +23,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	mrand "math/rand"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -36,6 +38,7 @@ import (
 	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/cert"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/portowner"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 	"github.com/aipo-lenshow/EdgeNest/internal/core"
 )
@@ -43,8 +46,12 @@ import (
 // Modes reported in Status.Mode.
 const (
 	ModeOff      = "off"      // no edge domain configured
-	ModeBuiltin  = "builtin"  // this gateway serves :443
-	ModeExternal = "external" // the operator's own reverse proxy does (or must)
+	ModeBuiltin  = "builtin"  // this gateway serves the edge domain itself
+	ModeExternal = "external" // the operator's own reverse proxy does
+	// ModeConflict: auto mode found port 443 taken by another program and is
+	// waiting for the operator to choose — forward from that program
+	// (external) or run the gateway on another Cloudflare port (AltPort).
+	ModeConflict = "conflict"
 )
 
 // Status is what the panel shows next to the anti-blocking settings.
@@ -59,6 +66,15 @@ type Status struct {
 	// PanelURL is where the panel answers through the gateway (the edge
 	// domain + the secret panel path), set while the gateway runs.
 	PanelURL string `json:"panel_url,omitempty"`
+	// Port is the public port the built-in gateway serves on.
+	Port int `json:"port,omitempty"`
+	// Backend is the loopback address an external reverse proxy forwards the
+	// whole edge domain to (plain HTTP; EdgeNest does the routing).
+	Backend string `json:"backend,omitempty"`
+	// Owner is the program already listening on 443, when there is one.
+	Owner *portowner.Owner `json:"owner,omitempty"`
+	// AltPort is a free Cloudflare HTTPS port the gateway could use instead.
+	AltPort int `json:"alt_port,omitempty"`
 }
 
 // Issuer is the slice of cert.Manager the gateway uses (a seam for tests).
@@ -70,7 +86,7 @@ type Issuer interface {
 // only a handful of failed validations per hour, and Reconcile runs often.
 const issueBackoff = time.Hour
 
-// Gateway owns the :443 listener. Reconcile is the only entry point that
+// Gateway owns the public listener and the loopback backend. Reconcile is the only entry point that
 // changes state; it is safe to call at any time and from any goroutine.
 type Gateway struct {
 	store  *store.Store
@@ -81,12 +97,16 @@ type Gateway struct {
 	// panel is never served through the gateway.
 	panel     func(*http.Request) bool
 	panelPath func() string
-	nodeID uint
-	addr   string // ":443" in production; tests use a free port
+	nodeID    uint
+	// addr overrides the public listen address (tests); "" = ":<port>".
+	addr string
 
 	mu        sync.Mutex
 	srv       *http.Server
 	srvCFOnly bool // listener filter the running server was started with
+	srvAddr   string
+	backend   *http.Server // loopback plain-HTTP entry for an external proxy
+	backAddr  string
 	status    Status
 	issuing   bool
 	lastIssue time.Time // last ACME attempt; failures back off (rate limits)
@@ -103,7 +123,7 @@ type Gateway struct {
 
 // New builds an idle gateway; call Reconcile (and Run for periodic upkeep).
 func New(s *store.Store, issuer Issuer, sub http.Handler, nodeID uint) *Gateway {
-	return &Gateway{store: s, issuer: issuer, sub: sub, nodeID: nodeID, addr: ":443",
+	return &Gateway{store: s, issuer: issuer, sub: sub, nodeID: nodeID,
 		status: Status{Mode: ModeOff}}
 }
 
@@ -147,46 +167,67 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 	cfg := antiblock.Load(g.store)
 	g.invalidateRoutes()
 
-	if cfg.EdgeDomain == "" || cfg.GatewayMode == antiblock.GatewayExternal {
+	if cfg.EdgeDomain == "" {
 		g.stop()
-		mode := ModeOff
-		if cfg.EdgeDomain != "" {
-			mode = ModeExternal
-		}
-		g.setStatus(Status{Mode: mode, Domain: cfg.EdgeDomain})
+		g.stopBackend()
+		g.setStatus(Status{Mode: ModeOff})
 		return
+	}
+	// The loopback backend runs whenever there is an edge domain, so an
+	// external proxy can be pointed at it before or after the choice is made.
+	backend := g.ensureBackend()
+
+	if cfg.GatewayMode == antiblock.GatewayExternal {
+		g.stop()
+		g.setStatus(Status{Mode: ModeExternal, Domain: cfg.EdgeDomain, Backend: backend, Owner: portowner.Find(443)})
+		return
+	}
+
+	port := cfg.GatewayPort()
+	addr := g.addr
+	if addr == "" {
+		addr = fmt.Sprintf(":%d", port)
+	}
+	g.mu.Lock()
+	stale := g.srv != nil && (g.srvAddr != addr || g.srvCFOnly != !cfg.OriginOpen)
+	g.mu.Unlock()
+	if stale {
+		g.stop()
+	}
+	g.mu.Lock()
+	running := g.srv != nil
+	g.mu.Unlock()
+	if !running {
+		if err := g.start(addr, !cfg.OriginOpen); err != nil {
+			st := Status{Domain: cfg.EdgeDomain, Backend: backend, Port: port}
+			if cfg.GatewayMode == antiblock.GatewayAuto && port == 443 {
+				// Someone else owns 443. Don't decide for the operator and don't
+				// fight that program for the port: report who it is and a free
+				// Cloudflare port, and let the panel offer both ways forward.
+				st.Mode, st.Owner, st.AltPort = ModeConflict, portowner.Find(443), g.freeAltPort()
+			} else {
+				st.Mode, st.Error = ModeBuiltin, fmt.Sprintf("内置网关无法监听 %d 端口: %v", port, err)
+				st.Owner = portowner.Find(port)
+			}
+			g.setStatus(st)
+			return
+		}
+		if cfg.GatewayMode == antiblock.GatewayAuto {
+			// Resolved once and remembered: a later boot that happens to start
+			// before some other web server must not grab the port it wanted.
+			_ = g.store.SetSetting(antiblock.KeyGatewayMode, antiblock.GatewayBuiltin)
+		}
 	}
 
 	crt, _ := g.findCert(cfg.EdgeDomain)
 	if crt == nil || time.Until(time.Unix(crt.ExpiresAt, 0)) < 0 {
 		g.issueAsync(ctx, cfg.EdgeDomain)
 	}
-
-	g.mu.Lock()
-	running := g.srv != nil
-	g.mu.Unlock()
-	if !running {
-		if err := g.start(!cfg.OriginOpen); err != nil {
-			mode, msg := ModeExternal, "443 端口已被其他程序占用，内置网关未启动；请用你自己的反代转发（见下方配置）"
-			if cfg.GatewayMode == antiblock.GatewayBuiltin {
-				mode, msg = ModeBuiltin, "内置网关启动失败: "+err.Error()
-			} else {
-				// Auto resolves once and remembers: if a web server already owns
-				// :443 here, a later boot that happens to start before it must
-				// not grab the port and knock that server's sites offline.
-				_ = g.store.SetSetting(antiblock.KeyGatewayMode, antiblock.GatewayExternal)
-			}
-			g.setStatus(Status{Mode: mode, Domain: cfg.EdgeDomain, Error: msg})
-			return
-		}
-		if cfg.GatewayMode == antiblock.GatewayAuto {
-			_ = g.store.SetSetting(antiblock.KeyGatewayMode, antiblock.GatewayBuiltin)
-		}
-	}
-	st := Status{Mode: ModeBuiltin, Running: true, Domain: cfg.EdgeDomain, CFOnly: !cfg.OriginOpen}
+	st := Status{Mode: ModeBuiltin, Running: true, Domain: cfg.EdgeDomain, CFOnly: !cfg.OriginOpen,
+		Port: port, Backend: backend}
 	if g.panel != nil && g.panelPath != nil {
 		if p := g.panelPath(); p != "" {
-			st.PanelURL = "https://" + cfg.EdgeDomain + p
+			st.PanelURL = cfg.EdgeOrigin() + p
 		}
 	}
 	if crt != nil {
@@ -198,14 +239,88 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 		st.Error = "还没有证书，正在申请（需要 80 端口可用，或在证书页配置 Cloudflare DNS 令牌）"
 	}
 	g.setStatus(st)
-	// The CF-only switch is a listener property; restart to apply a change.
-	g.mu.Lock()
-	needRestart := g.srv != nil && g.srvCFOnly != !cfg.OriginOpen
-	g.mu.Unlock()
-	if needRestart {
-		g.stop()
-		_ = g.start(!cfg.OriginOpen)
+}
+
+// FreeAltPort is freeAltPort for the one-click setup.
+func (g *Gateway) FreeAltPort() int { return g.freeAltPort() }
+
+// freeAltPort is the first Cloudflare HTTPS port other than 443 that no
+// inbound uses and nothing on the box listens on.
+func (g *Gateway) freeAltPort() int {
+	used := map[int]bool{}
+	if ins, err := g.store.ListInbounds(g.nodeID); err == nil {
+		for _, in := range ins {
+			used[in.Port] = true
+		}
 	}
+	for _, p := range antiblock.CloudflareHTTPSPorts {
+		if p == 443 || used[p] {
+			continue
+		}
+		if ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p)); err == nil {
+			_ = ln.Close()
+			return p
+		}
+	}
+	return 0
+}
+
+// ensureBackend starts the loopback plain-HTTP entry (same routing as the
+// public gateway) on its persisted port, minting one on first use, and
+// returns its address.
+func (g *Gateway) ensureBackend() string {
+	g.mu.Lock()
+	if g.backend != nil {
+		addr := g.backAddr
+		g.mu.Unlock()
+		return addr
+	}
+	g.mu.Unlock()
+	port, _ := strconv.Atoi(mustSetting(g.store, antiblock.KeyBackendPort))
+	var ln net.Listener
+	var err error
+	if port > 0 {
+		ln, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	}
+	if ln == nil {
+		for i := 0; i < 20 && ln == nil; i++ {
+			port = 20000 + mrand.Intn(12000)
+			ln, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		}
+		if ln == nil {
+			log.Printf("gateway: backend listener: %v", err)
+			return ""
+		}
+		_ = g.store.SetSetting(antiblock.KeyBackendPort, strconv.Itoa(port))
+	}
+	srv := &http.Server{Handler: g, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second}
+	addr := ln.Addr().String()
+	g.mu.Lock()
+	g.backend, g.backAddr = srv, addr
+	g.mu.Unlock()
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("gateway: backend: %v", err)
+		}
+	}()
+	return addr
+}
+
+func (g *Gateway) stopBackend() {
+	g.mu.Lock()
+	srv := g.backend
+	g.backend, g.backAddr = nil, ""
+	g.mu.Unlock()
+	if srv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}
+}
+
+func mustSetting(s *store.Store, k string) string {
+	v, _ := s.GetSetting(k)
+	return v
 }
 
 func (g *Gateway) setStatus(s Status) {
@@ -300,8 +415,8 @@ func (g *Gateway) getCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error)
 	return &pair, nil
 }
 
-func (g *Gateway) start(cfOnly bool) error {
-	ln, err := listenDual(g.addr)
+func (g *Gateway) start(addr string, cfOnly bool) error {
+	ln, err := listenDual(addr)
 	if err != nil {
 		return err
 	}
@@ -316,14 +431,14 @@ func (g *Gateway) start(cfOnly bool) error {
 		ErrorLog:          log.New(discard{}, "", 0), // handshake noise from scanners
 	}
 	g.mu.Lock()
-	g.srv, g.srvCFOnly = srv, cfOnly
+	g.srv, g.srvCFOnly, g.srvAddr = srv, cfOnly, addr
 	g.mu.Unlock()
 	go func() {
 		if err := srv.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("gateway: serve: %v", err)
 		}
 	}()
-	log.Printf("gateway: listening on %s (cloudflare-only=%v)", g.addr, cfOnly)
+	log.Printf("gateway: listening on %s (cloudflare-only=%v)", addr, cfOnly)
 	return nil
 }
 

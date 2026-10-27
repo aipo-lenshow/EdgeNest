@@ -38,6 +38,8 @@ const (
 	KeyGatewayMode    = "edge_gateway"       // "" (auto) | "builtin" | "external"
 	KeyOriginOpen     = "edge_origin_open"   // "true" = built-in gateway accepts non-Cloudflare clients
 	KeyPanelViaGW     = "panel_gateway_only" // "true" = the panel port only accepts on-box connections
+	KeyEdgePort       = "edge_port"          // built-in gateway port (one of CloudflareHTTPSPorts; "" = 443)
+	KeyBackendPort    = "edge_backend_port"  // loopback port an external reverse proxy forwards to
 	keyMirrorsSeq     = "sub_mirrors_seq"
 	keyMirrorsSeed    = "sub_mirrors_ed25519_seed"
 )
@@ -61,6 +63,9 @@ type Config struct {
 	// the panel is then only reachable through the built-in gateway (HTTPS on
 	// the edge domain) or an SSH tunnel.
 	PanelViaGatewayOnly bool `json:"panel_gateway_only"`
+	// EdgePort is the port the built-in gateway serves on (0 = 443); used
+	// when another program owns 443. Must be a Cloudflare-proxied HTTPS port.
+	EdgePort int `json:"edge_port"`
 }
 
 // Gateway modes.
@@ -87,6 +92,7 @@ func Load(s *store.Store) Config {
 		OriginOpen:          get(KeyOriginOpen) == "true",
 		PanelViaGatewayOnly: get(KeyPanelViaGW) == "true",
 	}
+	c.EdgePort, _ = strconv.Atoi(get(KeyEdgePort))
 	if raw := get(KeySubMirrors); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &c.Mirrors)
 	}
@@ -130,6 +136,12 @@ func Normalize(c Config) (Config, error) {
 		c.GatewayMode = GatewayAuto
 	default:
 		return c, fmt.Errorf("gateway_mode must be auto, builtin or external: %q", c.GatewayMode)
+	}
+	if c.EdgePort == 443 {
+		c.EdgePort = 0
+	}
+	if c.EdgePort != 0 && !isCloudflarePort(c.EdgePort) {
+		return c, fmt.Errorf("edge_port must be one of %v (the HTTPS ports Cloudflare proxies)", CloudflareHTTPSPorts)
 	}
 	// The panel can only hide behind the built-in gateway; any posture where
 	// that gateway won't serve it reopens the panel port.
@@ -202,6 +214,7 @@ func Save(s *store.Store, c Config) error {
 		KeyGatewayMode:    c.GatewayMode,
 		KeyOriginOpen:     flag(c.OriginOpen),
 		KeyPanelViaGW:     flag(c.PanelViaGatewayOnly),
+		KeyEdgePort:       portStr(c.EdgePort),
 	} {
 		if err := s.SetSetting(k, v); err != nil {
 			return err
@@ -211,6 +224,13 @@ func Save(s *store.Store, c Config) error {
 		return s.SetSetting(keyMirrorsSeq, strconv.FormatInt(time.Now().Unix(), 10))
 	}
 	return nil
+}
+
+func portStr(p int) string {
+	if p == 0 || p == 443 {
+		return ""
+	}
+	return strconv.Itoa(p)
 }
 
 // Shielded reports whether an inbound sits behind Cloudflare (edge reverse
@@ -298,33 +318,71 @@ func signingKey(s *store.Store) (ed25519.PrivateKey, error) {
 	return ed25519.NewKeyFromSeed(seed), nil
 }
 
-// EdgeRoute is one loopback origin the operator's reverse proxy must forward.
-type EdgeRoute struct {
-	Path string
-	Port int
+// CloudflareHTTPSPorts are the HTTPS ports Cloudflare proxies on every plan.
+// The built-in gateway may use any of them when 443 belongs to another
+// program on the box.
+var CloudflareHTTPSPorts = []int{443, 8443, 2053, 2083, 2087, 2096}
+
+// GatewayPort is the port the built-in gateway serves the edge domain on.
+func (c Config) GatewayPort() int {
+	if c.EdgePort == 0 {
+		return 443
+	}
+	return c.EdgePort
 }
 
-// CaddySnippet renders the Caddyfile site block for the edge domain: the
-// subscription path to the panel, each edge inbound's WebSocket path to its
-// loopback port, the panel itself (its secret path, and later requests that
-// carry the gate cookie it issues — the panel re-checks that cookie), and a
-// bare 404 for everything else.
-func CaddySnippet(c Config, panelPort int, panelPath string, routes []EdgeRoute) string {
+// EdgeOrigin is the public HTTPS origin of the edge domain, with the port
+// when it isn't 443.
+func (c Config) EdgeOrigin() string {
 	if c.EdgeDomain == "" {
 		return ""
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s {\n", c.EdgeDomain)
-	if panelPort > 0 {
-		fmt.Fprintf(&b, "\thandle /sub/* {\n\t\treverse_proxy 127.0.0.1:%d\n\t}\n", panelPort)
+	if p := c.GatewayPort(); p != 443 && c.GatewayMode != GatewayExternal {
+		return fmt.Sprintf("https://%s:%d", c.EdgeDomain, p)
 	}
-	for _, r := range routes {
-		fmt.Fprintf(&b, "\thandle %s {\n\t\treverse_proxy 127.0.0.1:%d\n\t}\n", r.Path, r.Port)
+	return "https://" + c.EdgeDomain
+}
+
+// ProxyConfigs renders the reverse-proxy config for an operator whose own
+// web server fronts the edge domain. Every tool gets the same single rule:
+// send the whole domain to EdgeNest's loopback backend (backend = host:port),
+// which routes subscriptions, CDN WebSocket paths and the panel itself and
+// 404s the rest — so no path or cookie rules ever live in the proxy.
+func ProxyConfigs(c Config, backend string) map[string]string {
+	if c.EdgeDomain == "" || backend == "" {
+		return nil
 	}
-	if panelPort > 0 && panelPath != "" {
-		fmt.Fprintf(&b, "\thandle %s* {\n\t\treverse_proxy 127.0.0.1:%d\n\t}\n", panelPath, panelPort)
-		fmt.Fprintf(&b, "\t@panel header_regexp Cookie edgenest_gate=\n\thandle @panel {\n\t\treverse_proxy 127.0.0.1:%d\n\t}\n", panelPort)
+	return map[string]string{
+		"caddy": fmt.Sprintf("%s {\n\treverse_proxy %s\n}\n", c.EdgeDomain, backend),
+		"nginx": fmt.Sprintf(`server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name %s;
+
+    # The certificate for %s (e.g. from certbot, or a Cloudflare origin certificate)
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://%s;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+    }
+}
+`, c.EdgeDomain, c.EdgeDomain, backend),
 	}
-	b.WriteString("\thandle {\n\t\trespond 404\n\t}\n}\n")
-	return b.String()
+}
+
+func isCloudflarePort(p int) bool {
+	for _, x := range CloudflareHTTPSPorts {
+		if x == p {
+			return true
+		}
+	}
+	return false
 }

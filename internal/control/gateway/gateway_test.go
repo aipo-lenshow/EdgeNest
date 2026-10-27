@@ -113,9 +113,10 @@ func TestRouting(t *testing.T) {
 	}
 }
 
-// A web server already owns the port: auto mode stands aside and remembers,
-// so a later boot never grabs the port from it.
-func TestReconcileAutoBusyPortGoesExternal(t *testing.T) {
+// Another program owns the port: auto mode neither fights it nor decides for
+// the operator — it reports a conflict with a free Cloudflare port, keeps the
+// loopback backend up for an external proxy, and persists nothing.
+func TestReconcileAutoBusyPortReportsConflict(t *testing.T) {
 	st, nodeID := newStore(t)
 	busy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -123,14 +124,39 @@ func TestReconcileAutoBusyPortGoesExternal(t *testing.T) {
 	}
 	defer busy.Close()
 	_ = antiblock.Save(st, antiblock.Config{EdgeDomain: "cdn.example.com"})
-	g := New(st, nil, nil, nodeID)
+	sub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "sub-ok") })
+	g := New(st, nil, sub, nodeID)
 	g.addr = busy.Addr().String()
 	g.Reconcile(context.Background())
-	if s := g.Status(); s.Mode != ModeExternal || s.Running {
-		t.Fatalf("status = %+v, want external / not running", s)
+	defer g.stopBackend()
+	s := g.Status()
+	if s.Mode != ModeConflict || s.Running || s.Backend == "" {
+		t.Fatalf("status = %+v", s)
 	}
-	if antiblock.Load(st).GatewayMode != antiblock.GatewayExternal {
-		t.Fatal("auto decision not remembered")
+	if antiblock.Load(st).GatewayMode != antiblock.GatewayAuto {
+		t.Fatal("a conflict must not be decided on the operator's behalf")
+	}
+	// The backend routes like the gateway: an external proxy needs one rule.
+	resp, err := http.Get("http://" + s.Backend + "/sub/T")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "sub-ok" {
+		t.Fatalf("backend /sub/: %q", body)
+	}
+	resp, _ = http.Get("http://" + s.Backend + "/")
+	if resp.StatusCode != 404 {
+		t.Fatalf("backend /: %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Choosing external keeps the backend and the same address.
+	_ = antiblock.Save(st, antiblock.Config{EdgeDomain: "cdn.example.com", GatewayMode: antiblock.GatewayExternal})
+	g.Reconcile(context.Background())
+	if s2 := g.Status(); s2.Mode != ModeExternal || s2.Backend != s.Backend {
+		t.Fatalf("external: %+v", s2)
 	}
 }
 
@@ -149,6 +175,7 @@ func TestReconcileBuiltinIssuesAndServes(t *testing.T) {
 	defer cancel()
 	g.Reconcile(ctx)
 	defer g.stop()
+	defer g.stopBackend()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for g.Status().CertExpires == 0 && time.Now().Before(deadline) {

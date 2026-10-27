@@ -22,7 +22,11 @@ export interface AntiBlockData {
   origin_open: boolean;
   panel_gateway_only: boolean;
   gateway: {
-    mode: "off" | "builtin" | "external";
+    mode: "off" | "builtin" | "external" | "conflict";
+    port?: number;
+    backend?: string;
+    owner?: { port: number; process: string; tool: string };
+    alt_port?: number;
     running: boolean;
     domain?: string;
     cert_expires?: number;
@@ -31,7 +35,9 @@ export interface AntiBlockData {
     cf_only: boolean;
     panel_url?: string;
   };
-  caddy_snippet: string;
+  proxy_configs?: { caddy?: string; nginx?: string };
+  port443?: { port: number; process: string; tool: string };
+  edge_port: number;
   edge_inbounds: { tag: string; path: string; port: number }[];
   mirror_pubkey: string;
 }
@@ -77,6 +83,7 @@ export default function AntiBlockCard() {
     gateway_mode?: AntiBlockData["gateway_mode"];
     origin_open?: boolean;
     panel_gateway_only?: boolean;
+    edge_port?: number;
   };
   const save = useMutation({
     mutationFn: (sw: Switches) =>
@@ -94,6 +101,7 @@ export default function AntiBlockCard() {
           gateway_mode: sw.gateway_mode ?? ab.data?.gateway_mode ?? "",
           origin_open: sw.origin_open ?? ab.data?.origin_open ?? false,
           panel_gateway_only: sw.panel_gateway_only ?? ab.data?.panel_gateway_only ?? false,
+          edge_port: sw.edge_port ?? ab.data?.edge_port ?? 0,
         }),
       ),
     onSuccess: (_d, sw) => {
@@ -120,6 +128,8 @@ export default function AntiBlockCard() {
 
   return (
     <div className="grid gap-6">
+      {ab.data && <QuickSetupCard data={ab.data} />}
+
       <Card title={t("antiblock.stealthSection")}>
         <div className="grid gap-3">
           <p className="text-xs text-white/50">{t("antiblock.stealthHint")}</p>
@@ -171,18 +181,8 @@ export default function AntiBlockCard() {
 
       {ab.data?.edge_domain && <GatewayCard data={ab.data} busy={save.isPending} onChange={(sw) => save.mutate(sw)} />}
 
-      {ab.data?.caddy_snippet && (
-        <Card title={t("antiblock.caddySection")}>
-          <div className="grid gap-3">
-            <p className="text-xs text-white/50">{t("antiblock.caddyHint", { n: edgeCount })}</p>
-            <pre className="rounded-lg bg-black/30 border border-white/10 p-3 text-xs font-mono overflow-x-auto whitespace-pre">
-              {ab.data.caddy_snippet}
-            </pre>
-            <div>
-              <CopyButton text={ab.data.caddy_snippet} />
-            </div>
-          </div>
-        </Card>
+      {ab.data?.proxy_configs && ab.data.gateway.backend && (
+        <ProxyConfigCard data={ab.data} />
       )}
 
       {ab.data?.mirror_pubkey && (ab.data.sub_mirrors.length ?? 0) > 0 && (
@@ -209,16 +209,21 @@ function GatewayCard({
     gateway_mode?: AntiBlockData["gateway_mode"];
     origin_open?: boolean;
     panel_gateway_only?: boolean;
+    edge_port?: number;
   }) => void;
 }) {
   const { t } = useTranslation();
   const g = data.gateway;
   const status =
     g.mode === "builtin" && g.running
-      ? t("antiblock.gatewayRunning")
+      ? g.port && g.port !== 443
+        ? t("antiblock.gatewayRunningPort", { port: g.port })
+        : t("antiblock.gatewayRunning")
       : g.mode === "external"
         ? t("antiblock.gatewayExternal")
-        : t("antiblock.gatewayStopped");
+        : g.mode === "conflict"
+          ? t("antiblock.gatewayConflict", { process: g.owner?.process || "?" })
+          : t("antiblock.gatewayStopped");
   return (
     <Card title={t("antiblock.gatewaySection")}>
       <div className="grid gap-3">
@@ -235,6 +240,22 @@ function GatewayCard({
           ) : null}
         </div>
         {g.error && <p className="text-xs text-amber-300">{g.error}</p>}
+        {g.mode === "conflict" && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="default" disabled={busy} onClick={() => onChange({ gateway_mode: "external" })}>
+              {t("antiblock.quickExternal", { process: g.owner?.process || "?" })}
+            </Button>
+            {g.alt_port ? (
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() => onChange({ gateway_mode: "builtin", edge_port: g.alt_port })}
+              >
+                {t("antiblock.useAltPort", { port: g.alt_port })}
+              </Button>
+            ) : null}
+          </div>
+        )}
         <Field label={t("antiblock.gatewayMode")} hint={t("antiblock.gatewayModeHint")}>
           <Select
             value={data.gateway_mode}
@@ -274,6 +295,121 @@ function GatewayCard({
               label={t("antiblock.cfOnlyLabel")}
             />
           </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// QuickSetupCard is the one-click path: detect who owns port 443, take the
+// two names, and either let EdgeNest serve the edge domain itself (on 443, or
+// a free Cloudflare port when 443 is taken) or keep the server's own reverse
+// proxy and show the config to add to it.
+function QuickSetupCard({ data }: { data: AntiBlockData }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [edge, setEdge] = useState(data.edge_domain);
+  const [direct, setDirect] = useState(data.direct_domain);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  useEffect(() => {
+    setEdge(data.edge_domain);
+    setDirect(data.direct_domain);
+  }, [data.edge_domain, data.direct_domain]);
+  const setup = useMutation({
+    mutationFn: (use: "builtin" | "external") =>
+      call<AntiBlockData & { created_inbound: boolean; users_added: number }>(
+        api.post("/antiblock/setup", { edge_domain: edge, direct_domain: direct, use }),
+      ),
+    onSuccess: (r, use) => {
+      setMsg({
+        kind: "ok",
+        text:
+          (r.created_inbound ? t("antiblock.quickDoneCreated", { users: r.users_added }) : t("antiblock.quickDone")) +
+          (use === "external" ? " " + t("antiblock.quickDoneExternal") : ""),
+      });
+      qc.invalidateQueries({ queryKey: ["antiblock"] });
+      qc.invalidateQueries({ queryKey: ["subscriptions"] });
+      qc.invalidateQueries({ queryKey: ["inbounds"] });
+    },
+    onError: (e: Error) => setMsg({ kind: "err", text: e.message }),
+  });
+  const owner = data.port443;
+  return (
+    <Card title={t("antiblock.quickSection")}>
+      <div className="grid gap-3">
+        <p className="text-xs text-white/50">{t("antiblock.quickHint")}</p>
+        <p className={`text-sm ${owner ? "text-amber-300" : "text-emerald-300"}`}>
+          ●{" "}
+          {owner
+            ? t("antiblock.port443Taken", { process: owner.process || "?" })
+            : t("antiblock.port443Free")}
+        </p>
+        <Field label={t("antiblock.edgeDomain")} hint={t("antiblock.quickEdgeHint")}>
+          <Input value={edge} onChange={(e) => setEdge(e.target.value)} placeholder="cdn.example.com" />
+        </Field>
+        <Field label={t("antiblock.directDomain")} hint={t("antiblock.quickDirectHint")}>
+          <Input value={direct} onChange={(e) => setDirect(e.target.value)} placeholder="n1.example.com" />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" disabled={setup.isPending || !edge.trim()} onClick={() => setup.mutate("builtin")}>
+            {owner ? t("antiblock.quickBuiltinAlt") : t("antiblock.quickBuiltin")}
+          </Button>
+          {owner && (
+            <Button variant="default" disabled={setup.isPending || !edge.trim()} onClick={() => setup.mutate("external")}>
+              {t("antiblock.quickExternal", { process: owner.process || "?" })}
+            </Button>
+          )}
+        </div>
+        {setup.isPending && <span className="text-sm text-white/60">{t("common.saving")}</span>}
+        {msg?.kind === "ok" && <span className="text-sm text-emerald-300">{msg.text}</span>}
+        {msg?.kind === "err" && <ErrorText>{msg.text}</ErrorText>}
+      </div>
+    </Card>
+  );
+}
+
+// ProxyConfigCard shows what to add to the server's own reverse proxy: one
+// rule sending the whole edge domain to EdgeNest's loopback entry, as a
+// Caddyfile block, an Nginx server block, or steps for GUI tools like Lucky.
+function ProxyConfigCard({ data }: { data: AntiBlockData }) {
+  const { t } = useTranslation();
+  const detected = data.gateway.owner?.tool ?? data.port443?.tool ?? "";
+  const initial = detected === "nginx" ? "nginx" : detected === "caddy" ? "caddy" : detected ? "other" : "caddy";
+  const [tab, setTab] = useState<"caddy" | "nginx" | "other">(initial);
+  const cfgs = data.proxy_configs ?? {};
+  const text = tab === "caddy" ? cfgs.caddy : tab === "nginx" ? cfgs.nginx : undefined;
+  const tabs: { key: "caddy" | "nginx" | "other"; label: string }[] = [
+    { key: "caddy", label: "Caddy" },
+    { key: "nginx", label: "Nginx" },
+    { key: "other", label: t("antiblock.proxyTabOther") },
+  ];
+  return (
+    <Card title={t("antiblock.proxySection")}>
+      <div className="grid gap-3">
+        <p className="text-xs text-white/50">{t("antiblock.proxyHint", { backend: data.gateway.backend })}</p>
+        <div className="flex flex-wrap gap-1">
+          {tabs.map((x) => (
+            <Button key={x.key} variant={tab === x.key ? "primary" : "default"} onClick={() => setTab(x.key)}>
+              {x.label}
+            </Button>
+          ))}
+        </div>
+        {text ? (
+          <>
+            <pre className="rounded-lg bg-black/30 border border-white/10 p-3 text-xs font-mono overflow-x-auto whitespace-pre">
+              {text}
+            </pre>
+            <div>
+              <CopyButton text={text} />
+            </div>
+            <p className="text-xs text-white/50">
+              {tab === "caddy" ? t("antiblock.proxyCaddyNote") : t("antiblock.proxyNginxNote")}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-white/70 whitespace-pre-line">
+            {t("antiblock.proxyOtherSteps", { domain: data.edge_domain, backend: data.gateway.backend })}
+          </p>
         )}
       </div>
     </Card>
