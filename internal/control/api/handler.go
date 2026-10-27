@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/cert"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/gateway"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/orchestrator"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
@@ -35,7 +36,14 @@ type Handler struct {
 	// self-hosters who don't want an operation history on disk can opt out.
 	// Events that occur while off are dropped, never back-filled.
 	auditEnabled atomic.Bool
+	// gateway is the built-in edge gateway (nil until SetGateway; it needs the
+	// finished router to serve /sub/*, so it is attached after NewRouter).
+	gateway *gateway.Gateway
 }
+
+// SetGateway attaches the built-in edge gateway so anti-blocking changes
+// reconcile it and the panel can show its state.
+func (h *Handler) SetGateway(g *gateway.Gateway) { h.gateway = g }
 
 // HandlerDeps groups optional dependencies so adding new ones doesn't keep
 // growing NewHandler's argument list.

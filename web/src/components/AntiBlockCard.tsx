@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, ErrorText, Field, Input, TextArea, Toggle } from "./ui";
+import { Button, Card, ErrorText, Field, Input, Select, TextArea, Toggle } from "./ui";
 import { api, call } from "../api/client";
 import CopyButton from "./CopyButton";
 
@@ -18,6 +18,17 @@ export interface AntiBlockData {
   sub_base_url: string;
   sub_mirrors: string[];
   stealth_mode: boolean;
+  gateway_mode: "" | "builtin" | "external";
+  origin_open: boolean;
+  gateway: {
+    mode: "off" | "builtin" | "external";
+    running: boolean;
+    domain?: string;
+    cert_expires?: number;
+    issuing?: boolean;
+    error?: string;
+    cf_only: boolean;
+  };
   caddy_snippet: string;
   edge_inbounds: { tag: string; path: string; port: number }[];
   mirror_pubkey: string;
@@ -57,8 +68,11 @@ export default function AntiBlockCard() {
     });
   }, [ab.data]);
 
+  // Every save sends the whole posture: the text fields from the form, the
+  // switches from the server's current values unless this save flips one.
+  type Switches = { stealth_mode?: boolean; gateway_mode?: AntiBlockData["gateway_mode"]; origin_open?: boolean };
   const save = useMutation({
-    mutationFn: (stealth: boolean) =>
+    mutationFn: (sw: Switches) =>
       call<AntiBlockData>(
         api.put("/antiblock", {
           edge_domain: form.edge_domain,
@@ -69,15 +83,17 @@ export default function AntiBlockCard() {
             .split("\n")
             .map((s) => s.trim())
             .filter(Boolean),
-          stealth_mode: stealth,
+          stealth_mode: sw.stealth_mode ?? ab.data?.stealth_mode ?? false,
+          gateway_mode: sw.gateway_mode ?? ab.data?.gateway_mode ?? "",
+          origin_open: sw.origin_open ?? ab.data?.origin_open ?? false,
         }),
       ),
-    onSuccess: (_d, stealth) => {
+    onSuccess: (_d, sw) => {
       setMsg({
         kind: "ok",
         text:
-          stealth !== (ab.data?.stealth_mode ?? false)
-            ? stealth
+          sw.stealth_mode !== undefined && sw.stealth_mode !== (ab.data?.stealth_mode ?? false)
+            ? sw.stealth_mode
               ? t("antiblock.stealthOnSaved")
               : t("antiblock.stealthOffSaved")
             : t("antiblock.saved"),
@@ -101,7 +117,7 @@ export default function AntiBlockCard() {
           <p className="text-xs text-white/50">{t("antiblock.stealthHint")}</p>
           <Toggle
             checked={stealth}
-            onChange={(v) => save.mutate(v)}
+            onChange={(v) => save.mutate({ stealth_mode: v })}
             disabled={ab.isLoading || save.isPending || (!stealth && edgeCount === 0)}
             pendingLabel={t("common.saving")}
             label={t("antiblock.stealthLabel")}
@@ -136,7 +152,7 @@ export default function AntiBlockCard() {
             />
           </Field>
           <div className="flex items-center gap-3">
-            <Button variant="primary" disabled={save.isPending || ab.isLoading} onClick={() => save.mutate(stealth)}>
+            <Button variant="primary" disabled={save.isPending || ab.isLoading} onClick={() => save.mutate({})}>
               {t("common.save")}
             </Button>
             {msg?.kind === "ok" && <span className="text-sm text-emerald-300">{msg.text}</span>}
@@ -144,6 +160,8 @@ export default function AntiBlockCard() {
           {msg?.kind === "err" && <ErrorText>{msg.text}</ErrorText>}
         </div>
       </Card>
+
+      {ab.data?.edge_domain && <GatewayCard data={ab.data} busy={save.isPending} onChange={(sw) => save.mutate(sw)} />}
 
       {ab.data?.caddy_snippet && (
         <Card title={t("antiblock.caddySection")}>
@@ -166,5 +184,68 @@ export default function AntiBlockCard() {
         </Card>
       )}
     </div>
+  );
+}
+
+// GatewayCard shows who terminates TLS for the edge domain — the built-in
+// gateway (no web server needed) or the operator's own reverse proxy — and
+// the gateway's certificate and origin-protection state.
+function GatewayCard({
+  data,
+  busy,
+  onChange,
+}: {
+  data: AntiBlockData;
+  busy: boolean;
+  onChange: (sw: { gateway_mode?: AntiBlockData["gateway_mode"]; origin_open?: boolean }) => void;
+}) {
+  const { t } = useTranslation();
+  const g = data.gateway;
+  const status =
+    g.mode === "builtin" && g.running
+      ? t("antiblock.gatewayRunning")
+      : g.mode === "external"
+        ? t("antiblock.gatewayExternal")
+        : t("antiblock.gatewayStopped");
+  return (
+    <Card title={t("antiblock.gatewaySection")}>
+      <div className="grid gap-3">
+        <p className="text-xs text-white/50">{t("antiblock.gatewayHint")}</p>
+        <div className="text-sm">
+          <span className={g.mode === "builtin" && g.running ? "text-emerald-300" : "text-amber-300"}>● {status}</span>
+          {g.cert_expires ? (
+            <span className="text-white/50">
+              {"　"}
+              {t("antiblock.gatewayCertUntil", { date: new Date(g.cert_expires * 1000).toLocaleDateString() })}
+            </span>
+          ) : g.issuing ? (
+            <span className="text-white/50">{"　"}{t("antiblock.gatewayIssuing")}</span>
+          ) : null}
+        </div>
+        {g.error && <p className="text-xs text-amber-300">{g.error}</p>}
+        <Field label={t("antiblock.gatewayMode")} hint={t("antiblock.gatewayModeHint")}>
+          <Select
+            value={data.gateway_mode}
+            disabled={busy}
+            onChange={(e) => onChange({ gateway_mode: e.target.value as AntiBlockData["gateway_mode"] })}
+          >
+            <option value="">{t("antiblock.gatewayModeAuto")}</option>
+            <option value="builtin">{t("antiblock.gatewayModeBuiltin")}</option>
+            <option value="external">{t("antiblock.gatewayModeExternal")}</option>
+          </Select>
+        </Field>
+        {g.mode === "builtin" && (
+          <>
+            <p className="text-xs text-white/50">{t("antiblock.cfOnlyHint")}</p>
+            <Toggle
+              checked={!data.origin_open}
+              onChange={(v) => onChange({ origin_open: !v })}
+              disabled={busy}
+              label={t("antiblock.cfOnlyLabel")}
+            />
+          </>
+        )}
+      </div>
+    </Card>
   );
 }

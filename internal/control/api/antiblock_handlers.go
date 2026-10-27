@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/gateway"
 	"github.com/aipo-lenshow/EdgeNest/internal/core"
 )
 
@@ -18,6 +20,7 @@ import (
 type antiblockView struct {
 	antiblock.Config
 	CaddySnippet string          `json:"caddy_snippet"`
+	Gateway      gateway.Status  `json:"gateway"`
 	EdgeInbounds []edgeInboundVM `json:"edge_inbounds"`
 	MirrorPubKey string          `json:"mirror_pubkey"`
 }
@@ -67,9 +70,13 @@ func (h *Handler) PutAntiBlock(c *gin.Context) {
 		"mirrors":       strconv.Itoa(len(next.Mirrors)),
 		"stealth":       strconv.FormatBool(next.Stealth),
 	})
+	if h.gateway != nil {
+		h.gateway.Reconcile(context.Background())
+	}
 	// Only the low-profile switch and the edge domain change what the engine
-	// serves; names and subscription origins are read at subscription time.
-	if prev.Stealth != next.Stealth || prev.EdgeDomain != next.EdgeDomain {
+	// serves (and the gateway's firewall openings); names and subscription
+	// origins are read at subscription time.
+	if prev.Stealth != next.Stealth || prev.EdgeDomain != next.EdgeDomain || prev.GatewayMode != next.GatewayMode {
 		if err := h.applyAfterChange(c, h.parseLocalNodeID()); err != nil {
 			core.Fail(c, http.StatusInternalServerError, "APPLY_FAILED", err.Error())
 			return
@@ -88,12 +95,22 @@ func (h *Handler) antiblockView(cfg antiblock.Config) antiblockView {
 		routes = append(routes, antiblock.EdgeRoute{Path: e.Path, Port: e.Port})
 	}
 	pub, _ := antiblock.PublicKey(h.store)
-	return antiblockView{
+	view := antiblockView{
 		Config:       cfg,
-		CaddySnippet: antiblock.CaddySnippet(cfg, h.panelPort, routes),
 		EdgeInbounds: edges,
 		MirrorPubKey: pub,
 	}
+	if h.gateway != nil {
+		view.Gateway = h.gateway.Status()
+		// The gateway may have just resolved auto mode; show the stored value.
+		view.GatewayMode = antiblock.Load(h.store).GatewayMode
+	}
+	// The reverse-proxy snippet is only for operators whose own web server
+	// fronts the edge domain; the built-in gateway needs none.
+	if view.Gateway.Mode != gateway.ModeBuiltin {
+		view.CaddySnippet = antiblock.CaddySnippet(cfg, h.panelPort, routes)
+	}
+	return view
 }
 
 // edgeInbounds lists the enabled edge_bound inbounds on the local node with

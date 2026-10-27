@@ -35,6 +35,8 @@ const (
 	KeySubBaseURL     = "sub_base_url"     // public origin subscriptions are handed out under
 	KeySubMirrors     = "sub_mirrors"      // JSON []string of extra subscription origins
 	KeyStealth        = "stealth_mode"     // "true" = only edge/Argo inbounds run and are subscribed
+	KeyGatewayMode    = "edge_gateway"     // "" (auto) | "builtin" | "external"
+	KeyOriginOpen     = "edge_origin_open" // "true" = built-in gateway accepts non-Cloudflare clients
 	keyMirrorsSeq     = "sub_mirrors_seq"
 	keyMirrorsSeed    = "sub_mirrors_ed25519_seed"
 )
@@ -47,7 +49,21 @@ type Config struct {
 	SubBaseURL     string   `json:"sub_base_url"`
 	Mirrors        []string `json:"sub_mirrors"`
 	Stealth        bool     `json:"stealth_mode"`
+	// GatewayMode picks who terminates TLS for the edge domain: "" lets the
+	// built-in gateway take :443 when it is free, "builtin" insists on it,
+	// "external" leaves it to the operator's own reverse proxy.
+	GatewayMode string `json:"gateway_mode"`
+	// OriginOpen lets the built-in gateway accept clients that aren't
+	// Cloudflare (default false: only Cloudflare's edge can reach :443).
+	OriginOpen bool `json:"origin_open"`
 }
+
+// Gateway modes.
+const (
+	GatewayAuto     = ""
+	GatewayBuiltin  = "builtin"
+	GatewayExternal = "external"
+)
 
 // Load reads the posture from the settings table. Missing keys decode to the
 // zero Config, which reproduces the historical behaviour exactly.
@@ -62,6 +78,8 @@ func Load(s *store.Store) Config {
 		DirectDomainV6: get(KeyDirectDomainV6),
 		SubBaseURL:     get(KeySubBaseURL),
 		Stealth:        get(KeyStealth) == "true",
+		GatewayMode:    get(KeyGatewayMode),
+		OriginOpen:     get(KeyOriginOpen) == "true",
 	}
 	if raw := get(KeySubMirrors); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &c.Mirrors)
@@ -100,6 +118,13 @@ func Normalize(c Config) (Config, error) {
 		mirrors = append(mirrors, n)
 	}
 	c.Mirrors = mirrors
+	switch c.GatewayMode {
+	case GatewayAuto, GatewayBuiltin, GatewayExternal:
+	case "auto":
+		c.GatewayMode = GatewayAuto
+	default:
+		return c, fmt.Errorf("gateway_mode must be auto, builtin or external: %q", c.GatewayMode)
+	}
 	if c.Stealth && c.EdgeDomain == "" {
 		return c, errors.New("stealth_mode needs edge_domain: with no edge name every node would go dark")
 	}
@@ -150,9 +175,11 @@ func Save(s *store.Store, c Config) error {
 	if len(c.Mirrors) == 0 {
 		mirrors = nil
 	}
-	stealth := ""
-	if c.Stealth {
-		stealth = "true"
+	flag := func(b bool) string {
+		if b {
+			return "true"
+		}
+		return ""
 	}
 	for k, v := range map[string]string{
 		KeyEdgeDomain:     c.EdgeDomain,
@@ -160,7 +187,9 @@ func Save(s *store.Store, c Config) error {
 		KeyDirectDomainV6: c.DirectDomainV6,
 		KeySubBaseURL:     c.SubBaseURL,
 		KeySubMirrors:     string(mirrors),
-		KeyStealth:        stealth,
+		KeyStealth:        flag(c.Stealth),
+		KeyGatewayMode:    c.GatewayMode,
+		KeyOriginOpen:     flag(c.OriginOpen),
 	} {
 		if err := s.SetSetting(k, v); err != nil {
 			return err

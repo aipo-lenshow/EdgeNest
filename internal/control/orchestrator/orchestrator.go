@@ -260,6 +260,7 @@ func (o *Orchestrator) Apply(ctx context.Context, nodeID uint) (core.ApplyResult
 func (o *Orchestrator) computeAllowPorts(nodeID uint, inbounds []model.Inbound) (managed, full []core.PortRule) {
 	userRules, _ := o.store.ListFirewallRules(nodeID)
 	managed = deriveAllowPorts(inbounds)
+	managed = append(managed, gatewayPorts(antiblock.Load(o.store))...)
 	managed = mergeSafeModePortsSkippingUser(managed, o.sshPort(), o.panelPort, userRules)
 	full = append([]core.PortRule(nil), managed...)
 	full = mergeUserManagedPorts(full, userRules)
@@ -354,6 +355,19 @@ func buildInboundSpec(ib model.Inbound) (core.InboundSpec, error) {
 		// sb.json with NO family pinning at all (cf. debug).
 		SubscriptionHost: ib.SubscriptionHost,
 	}, nil
+}
+
+// gatewayPorts are the openings the built-in edge gateway needs: 443 for the
+// edge domain's HTTPS and 80 for the certificate's HTTP-01 validation. None
+// when there is no edge domain or the operator's own web server fronts it.
+func gatewayPorts(ab antiblock.Config) []core.PortRule {
+	if ab.EdgeDomain == "" || ab.GatewayMode == antiblock.GatewayExternal {
+		return nil
+	}
+	return []core.PortRule{
+		{Port: 443, Proto: "tcp", Note: "edgenest:edge-gateway"},
+		{Port: 80, Proto: "tcp", Note: "edgenest:edge-gateway-acme"},
+	}
 }
 
 // runningInbounds drops the inbounds low-profile mode keeps off the wire.

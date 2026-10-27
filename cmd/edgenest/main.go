@@ -23,6 +23,7 @@ import (
 	"github.com/aipo-lenshow/EdgeNest/internal/control/cert"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/config"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/digest"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/gateway"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/health"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/notifyrunner"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/orchestrator"
@@ -196,6 +197,14 @@ func runStandalone(cfg config.Config) {
 		DataDir:   cfg.DataDir,
 	}, secret, localNodeID)
 	r := h.NewRouter()
+
+	// Built-in edge gateway: serves :443 for the anti-blocking edge domain
+	// (certificate, subscriptions, edge WebSocket paths) so no separate web
+	// server is needed. Idle until an edge domain is configured; stands aside
+	// when :443 already belongs to another web server.
+	gw := gateway.New(st, certMgr, r, localNode.ID)
+	h.SetGateway(gw)
+	gw.Run(context.Background(), 2*time.Minute)
 
 	// Background clock sync. SS-2022 / Hysteria2 / TUIC all carry a client
 	// timestamp the server checks against its own clock with a ±30 s replay
