@@ -93,7 +93,7 @@ function humanizeCertError(raw: string, t: TFn): string {
       ? t("certs.errRateLimitedUntil", { time: when })
       : t("certs.errRateLimited");
   }
-  if (lower.includes("email required")) return t("certs.errEmail");
+  if (lower.includes("email required") || lower.includes("acme_email")) return t("certs.errEmail");
   if (lower.includes("timeout") || lower.includes("deadline"))
     return t("certs.errTimeout");
   if (lower.includes("dns")) return t("certs.errDns");
@@ -295,6 +295,9 @@ export default function CertsPage() {
       {issue.isError && (
         <div className="mt-3">
           <ErrorText>{humanizeCertError(mutErr(issue.error), t)}</ErrorText>
+          {/* The short line can't say everything; the server's own reason
+              is what tells the operator what to fix. */}
+          <p className="mt-1 text-xs font-mono break-all text-white/40">{mutErr(issue.error)}</p>
         </div>
       )}
       {/* Renew failures surface inline on the row (last_error, humanised + auto-
