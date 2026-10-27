@@ -188,6 +188,7 @@ func TestReconcileBuiltinIssuesAndServes(t *testing.T) {
 	mgr := cert.NewManager(st, t.TempDir(), iss)
 	sub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "sub-ok") })
 	g := New(st, mgr, sub, nodeID)
+	g.lookup = func(context.Context, string) ([]string, error) { return []string{"127.0.0.1"}, nil }
 	g.addr = freeAddr(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -283,5 +284,47 @@ func TestPanelThroughGateway(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), c.want) {
 			t.Errorf("%s (cookie %q): got %q, want %q", c.path, c.cookie, rec.Body.String(), c.want)
 		}
+	}
+}
+
+// A name that doesn't resolve is reported as such without asking the CA, and
+// switching to another domain is tried at once instead of waiting out the
+// first one's backoff.
+func TestCertificateWaitsForDNS(t *testing.T) {
+	st, nodeID := newStore(t)
+	_ = antiblock.Save(st, antiblock.Config{EdgeDomain: "cdn.missing.test", OriginOpen: true, GatewayMode: antiblock.GatewayBuiltin})
+	iss := &selfSignedIssuer{dir: t.TempDir()}
+	g := New(st, cert.NewManager(st, t.TempDir(), iss), http.NotFoundHandler(), nodeID)
+	g.lookup = func(_ context.Context, host string) ([]string, error) {
+		if host == "cdn.missing.test" {
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		return []string{"127.0.0.1"}, nil
+	}
+	g.addr = freeAddr(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer g.stop()
+	defer g.stopBackend()
+
+	wait := func(state string) Status {
+		deadline := time.Now().Add(5 * time.Second)
+		for g.Status().CertState != state && time.Now().Before(deadline) {
+			time.Sleep(20 * time.Millisecond)
+		}
+		return g.Status()
+	}
+	g.Reconcile(ctx)
+	if s := wait(CertNoDNS); s.CertState != CertNoDNS || s.NextRetry == 0 {
+		t.Fatalf("status = %+v", s)
+	}
+	if n := iss.calls.Load(); n != 0 {
+		t.Fatalf("CA asked %d times for an unresolvable name", n)
+	}
+
+	_ = antiblock.Save(st, antiblock.Config{EdgeDomain: "cdn.ok.test", OriginOpen: true, GatewayMode: antiblock.GatewayBuiltin})
+	g.Reconcile(ctx)
+	if s := wait(CertOK); s.CertState != CertOK {
+		t.Fatalf("after switching domain: %+v", s)
 	}
 }

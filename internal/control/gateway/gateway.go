@@ -81,7 +81,23 @@ type Status struct {
 	// can't be validated over HTTP; a Cloudflare API token (DNS validation)
 	// is needed.
 	NeedCFToken bool `json:"need_cf_token,omitempty"`
+	// CertState says where the edge domain's certificate stands, for the
+	// panel to explain in plain words: ok, issuing, no_dns (the name doesn't
+	// resolve yet, so Let's Encrypt wasn't asked), failed (CertError has the
+	// reason; NextRetry is when it is tried again), need_token.
+	CertState string `json:"cert_state,omitempty"`
+	CertError string `json:"cert_error,omitempty"`
+	NextRetry int64  `json:"next_retry,omitempty"`
 }
+
+// Certificate states reported in Status.CertState.
+const (
+	CertOK        = "ok"
+	CertIssuing   = "issuing"
+	CertNoDNS     = "no_dns"
+	CertFailed    = "failed"
+	CertNeedToken = "need_token"
+)
 
 // Issuer is the slice of cert.Manager the gateway uses (a seam for tests).
 type Issuer interface {
@@ -91,6 +107,10 @@ type Issuer interface {
 // issueBackoff spaces ACME attempts for the edge domain: Let's Encrypt allows
 // only a handful of failed validations per hour, and Reconcile runs often.
 const issueBackoff = time.Hour
+
+// dnsBackoff spaces the DNS pre-check while the name doesn't resolve yet; it
+// costs nothing at Let's Encrypt, so a freshly added record is noticed soon.
+const dnsBackoff = time.Minute
 
 // Gateway owns the public listener and the loopback backend. Reconcile is the only entry point that
 // changes state; it is safe to call at any time and from any goroutine.
@@ -115,7 +135,15 @@ type Gateway struct {
 	backAddr  string
 	status    Status
 	issuing   bool
-	lastIssue time.Time // last ACME attempt; failures back off (rate limits)
+	// The last certificate attempt: for which domain, how it ended, and when
+	// the next one may start. Backoff is per domain, so changing the edge
+	// domain retries at once.
+	tryDomain string
+	tryState  string // CertNoDNS / CertFailed after a failed attempt
+	tryErr    string
+	nextTry   time.Time
+	// lookup resolves a host name (a seam for tests).
+	lookup func(ctx context.Context, host string) ([]string, error)
 
 	certMu   sync.Mutex
 	certPath string
@@ -130,7 +158,7 @@ type Gateway struct {
 // New builds an idle gateway; call Reconcile (and Run for periodic upkeep).
 func New(s *store.Store, issuer Issuer, sub http.Handler, nodeID uint) *Gateway {
 	return &Gateway{store: s, issuer: issuer, sub: sub, nodeID: nodeID,
-		status: Status{Mode: ModeOff}}
+		status: Status{Mode: ModeOff}, lookup: net.DefaultResolver.LookupHost}
 }
 
 // SetPanel lets the gateway serve the panel: allowed decides which requests
@@ -222,7 +250,8 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 	crt, _ := g.findCert(cfg.EdgeDomain)
 	st := Status{Mode: ModeBuiltin, Running: true, Domain: cfg.EdgeDomain, CFOnly: !cfg.OriginOpen,
 		Port: port, Backend: backend}
-	if crt == nil || time.Until(time.Unix(crt.ExpiresAt, 0)) < 0 {
+	valid := crt != nil && time.Until(time.Unix(crt.ExpiresAt, 0)) > 0
+	if !valid {
 		// HTTP-01 needs port 80; with another program on it the attempt can
 		// only fail (and Let's Encrypt rate-limits failures), so ask for a
 		// Cloudflare token instead and wait for it.
@@ -239,16 +268,30 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 	}
 	if crt != nil {
 		st.CertExpires = crt.ExpiresAt
-		if crt.LastError != "" && time.Until(time.Unix(crt.ExpiresAt, 0)) < 0 {
-			st.Error = "证书申请失败: " + crt.LastError
-		}
-	} else if st.NeedCFToken {
-		owner := portowner.Find(80)
-		st.Error = fmt.Sprintf("80 端口被 %s 占用，无法用 HTTP 方式申请证书；请在下方填写 Cloudflare API 令牌，改用 DNS 方式申请", owner.Process)
-	} else if !g.isIssuing() {
-		st.Error = "还没有证书，正在申请"
 	}
+	g.certStatus(&st, cfg.EdgeDomain, valid)
 	g.setStatus(st)
+}
+
+// certStatus fills the certificate part of st.
+func (g *Gateway) certStatus(st *Status, domain string, valid bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	switch {
+	case valid:
+		st.CertState = CertOK
+	case g.issuing:
+		st.CertState = CertIssuing
+	case st.NeedCFToken:
+		st.CertState = CertNeedToken
+		if owner := portowner.Find(80); owner != nil {
+			st.CertError = owner.Process
+		}
+	case g.tryDomain == domain && g.tryState != "":
+		st.CertState, st.CertError, st.NextRetry = g.tryState, g.tryErr, g.nextTry.Unix()
+	default:
+		st.CertState = CertIssuing
+	}
 }
 
 // FreeAltPort is freeAltPort for the one-click setup.
@@ -339,12 +382,6 @@ func (g *Gateway) setStatus(s Status) {
 	g.mu.Unlock()
 }
 
-func (g *Gateway) isIssuing() bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.issuing
-}
-
 // issueAsync requests a certificate for domain unless one is in flight. The
 // cert manager persists it and the scheduler renews it with every other cert.
 // DNS-01 via Cloudflare is used when the operator stored a Cloudflare token on
@@ -352,18 +389,38 @@ func (g *Gateway) isIssuing() bool {
 // Cloudflare forwards to the origin's :80.
 func (g *Gateway) issueAsync(ctx context.Context, domain string) {
 	g.mu.Lock()
-	if g.issuing || g.issuer == nil || time.Since(g.lastIssue) < issueBackoff {
+	if g.issuing || g.issuer == nil || (g.tryDomain == domain && time.Now().Before(g.nextTry)) {
 		g.mu.Unlock()
 		return
 	}
-	g.issuing, g.lastIssue = true, time.Now()
+	g.issuing = true
+	if g.tryDomain != domain {
+		g.tryDomain, g.tryState, g.tryErr = domain, "", ""
+	}
 	g.mu.Unlock()
+	fail := func(state, msg string, wait time.Duration) {
+		g.mu.Lock()
+		g.tryState, g.tryErr, g.nextTry = state, msg, time.Now().Add(wait)
+		g.mu.Unlock()
+	}
 	go func() {
 		defer func() {
 			g.mu.Lock()
 			g.issuing = false
 			g.mu.Unlock()
+			// Publish the outcome (failure reason / new certificate) now
+			// rather than at the next periodic pass.
+			g.Reconcile(ctx)
 		}()
+		// A name that doesn't resolve can only fail validation, and failed
+		// validations count against Let's Encrypt's hourly limit; check first.
+		lctx, lcancel := context.WithTimeout(ctx, 10*time.Second)
+		_, lerr := g.lookup(lctx, domain)
+		lcancel()
+		if lerr != nil {
+			fail(CertNoDNS, lerr.Error(), dnsBackoff)
+			return
+		}
 		req := cert.IssueRequest{Domain: domain, Email: g.acmeEmail(domain), Mode: "http-01"}
 		if tok, _ := g.store.GetSetting(CFTokenSetting); tok != "" {
 			req.Mode, req.DNSProvider = "dns-01", "cloudflare"
@@ -373,10 +430,13 @@ func (g *Gateway) issueAsync(ctx context.Context, domain string) {
 		defer cancel()
 		if _, err := g.issuer.Issue(ictx, g.nodeID, req); err != nil {
 			log.Printf("gateway: certificate for %s: %v", domain, err)
+			fail(CertFailed, err.Error(), issueBackoff)
 			return
 		}
 		log.Printf("gateway: certificate for %s issued", domain)
-		g.Reconcile(ctx)
+		g.mu.Lock()
+		g.tryState, g.tryErr, g.nextTry = "", "", time.Time{}
+		g.mu.Unlock()
 	}()
 }
 
@@ -390,10 +450,11 @@ func (g *Gateway) hasCFToken() bool {
 }
 
 // RetryCertificate clears the failure backoff so the next Reconcile asks for
-// the certificate again (after the operator supplied a token).
+// the certificate again (a token was supplied, or the operator pressed
+// "request again" after fixing DNS).
 func (g *Gateway) RetryCertificate() {
 	g.mu.Lock()
-	g.lastIssue = time.Time{}
+	g.nextTry = time.Time{}
 	g.mu.Unlock()
 }
 

@@ -30,6 +30,13 @@ type antiblockView struct {
 	Port443      *portowner.Owner `json:"port443,omitempty"`
 	EdgeInbounds []edgeInboundVM  `json:"edge_inbounds"`
 	MirrorPubKey string           `json:"mirror_pubkey"`
+	// SubOrigin is the subscription address prefix actually handed out
+	// (the explicit one, else the edge domain once a gateway serves it).
+	SubOrigin string `json:"sub_origin"`
+	// PanelURL is the panel's address through the edge domain, whichever
+	// program (built-in gateway or the operator's proxy) serves it.
+	PanelURL   string `json:"panel_url,omitempty"`
+	HasCFToken bool   `json:"has_cf_token"`
 }
 
 type edgeInboundVM struct {
@@ -115,6 +122,10 @@ func (h *Handler) antiblockView(cfg antiblock.Config) antiblockView {
 		Config:       cfg,
 		EdgeInbounds: edges,
 		MirrorPubKey: pub,
+		SubOrigin:    cfg.SubOrigin(),
+	}
+	if v, _ := h.store.GetSetting(gateway.CFTokenSetting); v != "" {
+		view.HasCFToken = true
 	}
 	if h.gateway != nil {
 		view.Gateway = h.gateway.Status()
@@ -127,10 +138,27 @@ func (h *Handler) antiblockView(cfg antiblock.Config) antiblockView {
 	if !h.gatewayServes(443) {
 		view.Port443 = portowner.Find(443)
 	}
+	if p := h.PanelPath(); p != "" && cfg.EdgeDomain != "" &&
+		(view.Gateway.Mode == gateway.ModeExternal || (view.Gateway.Mode == gateway.ModeBuiltin && view.Gateway.Running)) {
+		view.PanelURL = cfg.EdgeOrigin() + p
+	}
 	if view.Gateway.Mode == gateway.ModeExternal || view.Gateway.Mode == gateway.ModePending {
 		view.ProxyConfigs = antiblock.ProxyConfigs(cfg, view.Gateway.Backend)
 	}
 	return view
+}
+
+// RetryAntiBlockCertificate asks for the edge domain's certificate again now,
+// instead of waiting out the backoff after a failure (DNS was just fixed).
+//
+// POST /api/v1/antiblock/cert/retry
+func (h *Handler) RetryAntiBlockCertificate(c *gin.Context) {
+	if h.gateway != nil {
+		h.gateway.RetryCertificate()
+		h.gateway.Reconcile(context.Background())
+	}
+	h.auditLog(c, "antiblock.cert_retry", "settings", nil)
+	core.OK(c, h.antiblockView(antiblock.Load(h.store)))
 }
 
 // edgeInbounds lists the enabled edge_bound inbounds on the local node with

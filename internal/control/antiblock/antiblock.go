@@ -265,8 +265,8 @@ func MirrorsHeader(s *store.Store) (string, error) {
 	if len(bases) == 0 {
 		return "", nil
 	}
-	if c.SubBaseURL != "" && strings.HasPrefix(c.SubBaseURL, "https://") {
-		bases = append([]string{c.SubBaseURL}, bases...)
+	if o := c.SubOrigin(); strings.HasPrefix(o, "https://") {
+		bases = append([]string{o}, bases...)
 	}
 	priv, err := signingKey(s)
 	if err != nil {
@@ -341,6 +341,21 @@ func (c Config) EdgeOrigin() string {
 		return fmt.Sprintf("https://%s:%d", c.EdgeDomain, p)
 	}
 	return "https://" + c.EdgeDomain
+}
+
+// SubOrigin is where subscription links are handed out: the operator's
+// explicit SubBaseURL when set, otherwise the edge domain once something
+// actually serves it (the built-in gateway or the operator's own proxy).
+// Following the edge domain by default means changing the domain never
+// leaves links pointing at the old one. "" = the panel's own IP:port.
+func (c Config) SubOrigin() string {
+	if c.SubBaseURL != "" {
+		return c.SubBaseURL
+	}
+	if c.EdgeDomain != "" && c.GatewayMode != GatewayAuto {
+		return c.EdgeOrigin()
+	}
+	return ""
 }
 
 // ProxyConfigs renders the reverse-proxy config for an operator whose own

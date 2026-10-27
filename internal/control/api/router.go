@@ -126,6 +126,7 @@ func (h *Handler) NewRouter() *gin.Engine {
 		authed.PUT("/antiblock", h.PutAntiBlock)
 		authed.POST("/antiblock/setup", h.SetupAntiBlock)
 		authed.PUT("/antiblock/cf-token", h.PutCloudflareToken)
+		authed.POST("/antiblock/cert/retry", h.RetryAntiBlockCertificate)
 		authed.PUT("/settings/panel-path", h.UpdatePanelPath)
 		authed.PUT("/settings/timezone", h.UpdateTimezone)
 		authed.PUT("/settings/language", h.UpdateLanguage)

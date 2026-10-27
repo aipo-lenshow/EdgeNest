@@ -819,8 +819,8 @@ func (w *Wizard) CreateFromFunnel(ctx context.Context, nodeID uint, req FunnelRe
 	result.SubscriptionID = sub.ID
 	result.SubscriptionToken = subToken
 	result.SubscriptionURL = "/sub/" + subToken
-	if ab.SubBaseURL != "" {
-		result.SubscriptionAbsoluteURL = ab.SubBaseURL + result.SubscriptionURL
+	if o := ab.SubOrigin(); o != "" {
+		result.SubscriptionAbsoluteURL = o + result.SubscriptionURL
 	}
 
 	// Persist the Reality keypair public for quick lookup by the panel UI.

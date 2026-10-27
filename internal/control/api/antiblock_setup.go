@@ -75,11 +75,10 @@ func (h *Handler) SetupAntiBlock(c *gin.Context) {
 		core.Fail(c, http.StatusBadRequest, "BAD_REQUEST", "use must be builtin or external")
 		return
 	}
-	// Subscriptions follow the edge domain unless the operator already chose
-	// another public HTTPS origin.
-	if cfg.SubBaseURL == "" || strings.HasPrefix(cfg.SubBaseURL, "http://") {
-		cfg.SubBaseURL = cfg.EdgeOrigin()
-	}
+	// Subscriptions follow the edge domain (SubOrigin): drop any explicit
+	// prefix so a domain change in the one-click setup carries the links
+	// with it instead of leaving them on the old name.
+	cfg.SubBaseURL = ""
 	next, err := antiblock.Normalize(cfg)
 	if err != nil {
 		core.Fail(c, http.StatusBadRequest, "INVALID_ANTIBLOCK", err.Error())

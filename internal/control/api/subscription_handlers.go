@@ -300,7 +300,7 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 	}
 	lookup := h.buildInboundLookup()
 	fallback := h.shareHost()
-	base := antiblock.Load(h.store).SubBaseURL
+	base := antiblock.Load(h.store).SubOrigin()
 	views := make([]gin.H, 0, len(subs))
 	for i := range subs {
 		v := withSubBase(subscriptionView(&subs[i], lookup, h.panelPort, fallback), &subs[i], base)
@@ -342,7 +342,7 @@ func (h *Handler) GetSubscription(c *gin.Context) {
 	}
 	core.OK(c, h.withClientState(
 		withSubBase(subscriptionView(sub, h.buildInboundLookup(), h.panelPort, h.shareHost()),
-			sub, antiblock.Load(h.store).SubBaseURL),
+			sub, antiblock.Load(h.store).SubOrigin()),
 		sub.ClientID,
 	))
 }
