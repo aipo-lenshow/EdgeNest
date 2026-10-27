@@ -12,7 +12,7 @@ BINARY      := edgenest
 CMD         := ./cmd/edgenest
 WEB_DIR     := web
 EMBED_DIR   := internal/control/web/dist
-VERSION     ?= 1.24.1027
+VERSION     ?= 1.25.1027
 LDFLAGS     := -s -w -X main.version=$(VERSION)
 # -trimpath: strip $HOME paths from the binary so different build hosts produce
 # identical artifacts (reproducible-build friendly + no env leakage).
