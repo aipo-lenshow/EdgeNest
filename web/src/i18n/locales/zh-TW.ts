@@ -2281,6 +2281,11 @@ const zhTW = {
     gatewayModeExternal: "我自己的反代（Caddy / Nginx）",
     cfOnlyLabel: "只允許 Cloudflare 存取 443（推薦）",
     cfOnlyHint: "開啟後，直接用伺服器 IP 存取 443 的連線會被立即斷開，探測者什麼都看不到；只有經過 Cloudflare 的存取能進來。反代網域必須保持橘雲。",
+    panelUrl: "面板位址（經閘道，HTTPS）",
+    panelUrlHint: "用這個位址就能從任何地方開啟面板：全程 HTTPS、經過 Cloudflare、不暴露伺服器 IP。位址裡的路徑就是你的面板金鑰，不要外傳。",
+    panelOnlyLabel: "面板只能透過閘道存取（關閉面板埠的公網存取）",
+    panelOnlyHint: "開啟後，面板原來的埠只接受本機連線，公網上掃不到它；你透過上面的 HTTPS 位址照常使用。萬一閘道出問題，仍可用 SSH 隧道進入面板。",
+    panelOnlyNeedsGateway: "內建閘道正常運行並取得憑證後才能開啟，否則會把你鎖在面板外面。",
   },
 } as const;
 

@@ -29,14 +29,15 @@ import (
 // Settings keys. All live in the generic key/value table so no migration is
 // needed and an older binary simply ignores them.
 const (
-	KeyEdgeDomain     = "edge_domain"      // Cloudflare-proxied name in front of edge_bound inbounds
-	KeyDirectDomain   = "direct_domain"    // DNS-only name (A record) direct inbounds dial instead of the v4 IP
-	KeyDirectDomainV6 = "direct_domain_v6" // DNS-only name (AAAA) for inbounds bound to a v6 address
-	KeySubBaseURL     = "sub_base_url"     // public origin subscriptions are handed out under
-	KeySubMirrors     = "sub_mirrors"      // JSON []string of extra subscription origins
-	KeyStealth        = "stealth_mode"     // "true" = only edge/Argo inbounds run and are subscribed
-	KeyGatewayMode    = "edge_gateway"     // "" (auto) | "builtin" | "external"
-	KeyOriginOpen     = "edge_origin_open" // "true" = built-in gateway accepts non-Cloudflare clients
+	KeyEdgeDomain     = "edge_domain"        // Cloudflare-proxied name in front of edge_bound inbounds
+	KeyDirectDomain   = "direct_domain"      // DNS-only name (A record) direct inbounds dial instead of the v4 IP
+	KeyDirectDomainV6 = "direct_domain_v6"   // DNS-only name (AAAA) for inbounds bound to a v6 address
+	KeySubBaseURL     = "sub_base_url"       // public origin subscriptions are handed out under
+	KeySubMirrors     = "sub_mirrors"        // JSON []string of extra subscription origins
+	KeyStealth        = "stealth_mode"       // "true" = only edge/Argo inbounds run and are subscribed
+	KeyGatewayMode    = "edge_gateway"       // "" (auto) | "builtin" | "external"
+	KeyOriginOpen     = "edge_origin_open"   // "true" = built-in gateway accepts non-Cloudflare clients
+	KeyPanelViaGW     = "panel_gateway_only" // "true" = the panel port only accepts on-box connections
 	keyMirrorsSeq     = "sub_mirrors_seq"
 	keyMirrorsSeed    = "sub_mirrors_ed25519_seed"
 )
@@ -56,6 +57,10 @@ type Config struct {
 	// OriginOpen lets the built-in gateway accept clients that aren't
 	// Cloudflare (default false: only Cloudflare's edge can reach :443).
 	OriginOpen bool `json:"origin_open"`
+	// PanelViaGatewayOnly closes the panel port to everything but loopback:
+	// the panel is then only reachable through the built-in gateway (HTTPS on
+	// the edge domain) or an SSH tunnel.
+	PanelViaGatewayOnly bool `json:"panel_gateway_only"`
 }
 
 // Gateway modes.
@@ -73,13 +78,14 @@ func Load(s *store.Store) Config {
 		return strings.TrimSpace(v)
 	}
 	c := Config{
-		EdgeDomain:     get(KeyEdgeDomain),
-		DirectDomain:   get(KeyDirectDomain),
-		DirectDomainV6: get(KeyDirectDomainV6),
-		SubBaseURL:     get(KeySubBaseURL),
-		Stealth:        get(KeyStealth) == "true",
-		GatewayMode:    get(KeyGatewayMode),
-		OriginOpen:     get(KeyOriginOpen) == "true",
+		EdgeDomain:          get(KeyEdgeDomain),
+		DirectDomain:        get(KeyDirectDomain),
+		DirectDomainV6:      get(KeyDirectDomainV6),
+		SubBaseURL:          get(KeySubBaseURL),
+		Stealth:             get(KeyStealth) == "true",
+		GatewayMode:         get(KeyGatewayMode),
+		OriginOpen:          get(KeyOriginOpen) == "true",
+		PanelViaGatewayOnly: get(KeyPanelViaGW) == "true",
 	}
 	if raw := get(KeySubMirrors); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &c.Mirrors)
@@ -124,6 +130,11 @@ func Normalize(c Config) (Config, error) {
 		c.GatewayMode = GatewayAuto
 	default:
 		return c, fmt.Errorf("gateway_mode must be auto, builtin or external: %q", c.GatewayMode)
+	}
+	// The panel can only hide behind the built-in gateway; any posture where
+	// that gateway won't serve it reopens the panel port.
+	if c.EdgeDomain == "" || c.GatewayMode == GatewayExternal {
+		c.PanelViaGatewayOnly = false
 	}
 	if c.Stealth && c.EdgeDomain == "" {
 		return c, errors.New("stealth_mode needs edge_domain: with no edge name every node would go dark")
@@ -190,6 +201,7 @@ func Save(s *store.Store, c Config) error {
 		KeyStealth:        flag(c.Stealth),
 		KeyGatewayMode:    c.GatewayMode,
 		KeyOriginOpen:     flag(c.OriginOpen),
+		KeyPanelViaGW:     flag(c.PanelViaGatewayOnly),
 	} {
 		if err := s.SetSetting(k, v); err != nil {
 			return err

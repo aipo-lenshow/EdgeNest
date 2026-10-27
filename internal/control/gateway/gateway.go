@@ -4,6 +4,9 @@
 //   - presents an ACME certificate for the edge domain (issued and renewed by
 //     the cert manager like any other),
 //   - hands /sub/* to the panel's own subscription handler,
+//   - serves the panel itself to whoever opens its secret path (and from then
+//     on carries the panel's gate cookie), so it is reachable over HTTPS
+//     behind Cloudflare without exposing the panel port,
 //   - forwards each edge_bound inbound's WebSocket path to its loopback port,
 //   - answers everything else with a stock nginx 404,
 //   - and by default only accepts connections from Cloudflare's ranges, so a
@@ -53,6 +56,9 @@ type Status struct {
 	Issuing     bool   `json:"issuing,omitempty"`
 	Error       string `json:"error,omitempty"`
 	CFOnly      bool   `json:"cf_only"`
+	// PanelURL is where the panel answers through the gateway (the edge
+	// domain + the secret panel path), set while the gateway runs.
+	PanelURL string `json:"panel_url,omitempty"`
 }
 
 // Issuer is the slice of cert.Manager the gateway uses (a seam for tests).
@@ -69,7 +75,12 @@ const issueBackoff = time.Hour
 type Gateway struct {
 	store  *store.Store
 	issuer Issuer
-	sub    http.Handler // the panel router; only /sub/* is ever passed to it
+	sub    http.Handler // the panel router; gets /sub/* and panel-gated requests
+	// panel reports whether a request belongs to the panel: its secret path,
+	// or a later request carrying the gate cookie that path issued. Nil = the
+	// panel is never served through the gateway.
+	panel     func(*http.Request) bool
+	panelPath func() string
 	nodeID uint
 	addr   string // ":443" in production; tests use a free port
 
@@ -94,6 +105,13 @@ type Gateway struct {
 func New(s *store.Store, issuer Issuer, sub http.Handler, nodeID uint) *Gateway {
 	return &Gateway{store: s, issuer: issuer, sub: sub, nodeID: nodeID, addr: ":443",
 		status: Status{Mode: ModeOff}}
+}
+
+// SetPanel lets the gateway serve the panel: allowed decides which requests
+// are the panel's (secret path or gate cookie), path yields the secret path
+// for the URL shown to the operator.
+func (g *Gateway) SetPanel(allowed func(*http.Request) bool, path func() string) {
+	g.panel, g.panelPath = allowed, path
 }
 
 // Status returns a snapshot for the panel.
@@ -166,6 +184,11 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 		}
 	}
 	st := Status{Mode: ModeBuiltin, Running: true, Domain: cfg.EdgeDomain, CFOnly: !cfg.OriginOpen}
+	if g.panel != nil && g.panelPath != nil {
+		if p := g.panelPath(); p != "" {
+			st.PanelURL = "https://" + cfg.EdgeDomain + p
+		}
+	}
 	if crt != nil {
 		st.CertExpires = crt.ExpiresAt
 		if crt.LastError != "" && time.Until(time.Unix(crt.ExpiresAt, 0)) < 0 {
@@ -324,6 +347,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if target := g.route(r.URL.Path); target != "" {
 		proxyTo(target).ServeHTTP(w, r)
+		return
+	}
+	if g.panel != nil && g.sub != nil && g.panel(r) {
+		g.sub.ServeHTTP(w, r)
 		return
 	}
 	notFound(w)

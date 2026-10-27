@@ -2301,6 +2301,11 @@ const en = {
     gatewayModeExternal: "My own reverse proxy (Caddy / Nginx)",
     cfOnlyLabel: "Only Cloudflare may reach 443 (recommended)",
     cfOnlyHint: "When on, connections to 443 that come straight to the server IP are closed at once, so a prober sees nothing; only traffic through Cloudflare gets in. Keep the reverse-proxy domain proxied (orange cloud).",
+    panelUrl: "Panel address (through the gateway, HTTPS)",
+    panelUrlHint: "Open the panel from anywhere with this address: HTTPS end to end, through Cloudflare, without exposing the server IP. The path in it is your panel secret — keep it private.",
+    panelOnlyLabel: "Panel reachable only through the gateway (close the panel port to the internet)",
+    panelOnlyHint: "When on, the panel's own port only accepts connections from this server, so scanners can't find it; you keep using the HTTPS address above. If the gateway ever breaks, an SSH tunnel still gets you in.",
+    panelOnlyNeedsGateway: "Available once the built-in gateway is running with a certificate — otherwise you would lock yourself out of the panel.",
   },
 } as const;
 

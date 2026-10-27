@@ -73,7 +73,7 @@ func main() {
 
 // version is overridden by the linker via Makefile's -X main.version flag.
 // The compiled-in default tracks the current source-tree release.
-var version = "1.22.1027"
+var version = "1.23.1027"
 
 func runStandalone(cfg config.Config) {
 	if err := cfg.EnsureDataDir(); err != nil {
@@ -261,7 +261,7 @@ func runStandalone(cfg config.Config) {
 	if err != nil {
 		log.Fatalf("http server: listen %s: %v", cfg.Listen, err)
 	}
-	if err := r.RunListener(httpListener); err != nil {
+	if err := r.RunListener(h.GuardPanelListener(httpListener)); err != nil {
 		log.Fatalf("http server: %v", err)
 	}
 }

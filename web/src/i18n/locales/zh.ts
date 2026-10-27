@@ -2283,6 +2283,11 @@ const zh = {
     gatewayModeExternal: "我自己的反代（Caddy / Nginx）",
     cfOnlyLabel: "只允许 Cloudflare 访问 443（推荐）",
     cfOnlyHint: "开启后，直接用服务器 IP 访问 443 的连接会被立即断开，探测者什么都看不到；只有经过 Cloudflare 的访问能进来。反代域名必须保持橙云。",
+    panelUrl: "面板地址（经网关，HTTPS）",
+    panelUrlHint: "用这个地址就能从任何地方打开面板：全程 HTTPS、经过 Cloudflare、不暴露服务器 IP。地址里的路径就是你的面板密钥，不要外传。",
+    panelOnlyLabel: "面板只能通过网关访问（关闭面板端口的公网访问）",
+    panelOnlyHint: "开启后，面板原来的端口只接受本机连接，公网上扫不到它；你通过上面的 HTTPS 地址照常使用。万一网关出问题，仍可用 SSH 隧道进入面板。",
+    panelOnlyNeedsGateway: "内置网关正常运行并拿到证书后才能开启，否则会把你锁在面板外面。",
   },
 } as const;
 

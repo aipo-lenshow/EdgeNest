@@ -20,6 +20,7 @@ export interface AntiBlockData {
   stealth_mode: boolean;
   gateway_mode: "" | "builtin" | "external";
   origin_open: boolean;
+  panel_gateway_only: boolean;
   gateway: {
     mode: "off" | "builtin" | "external";
     running: boolean;
@@ -28,6 +29,7 @@ export interface AntiBlockData {
     issuing?: boolean;
     error?: string;
     cf_only: boolean;
+    panel_url?: string;
   };
   caddy_snippet: string;
   edge_inbounds: { tag: string; path: string; port: number }[];
@@ -70,7 +72,12 @@ export default function AntiBlockCard() {
 
   // Every save sends the whole posture: the text fields from the form, the
   // switches from the server's current values unless this save flips one.
-  type Switches = { stealth_mode?: boolean; gateway_mode?: AntiBlockData["gateway_mode"]; origin_open?: boolean };
+  type Switches = {
+    stealth_mode?: boolean;
+    gateway_mode?: AntiBlockData["gateway_mode"];
+    origin_open?: boolean;
+    panel_gateway_only?: boolean;
+  };
   const save = useMutation({
     mutationFn: (sw: Switches) =>
       call<AntiBlockData>(
@@ -86,6 +93,7 @@ export default function AntiBlockCard() {
           stealth_mode: sw.stealth_mode ?? ab.data?.stealth_mode ?? false,
           gateway_mode: sw.gateway_mode ?? ab.data?.gateway_mode ?? "",
           origin_open: sw.origin_open ?? ab.data?.origin_open ?? false,
+          panel_gateway_only: sw.panel_gateway_only ?? ab.data?.panel_gateway_only ?? false,
         }),
       ),
     onSuccess: (_d, sw) => {
@@ -197,7 +205,11 @@ function GatewayCard({
 }: {
   data: AntiBlockData;
   busy: boolean;
-  onChange: (sw: { gateway_mode?: AntiBlockData["gateway_mode"]; origin_open?: boolean }) => void;
+  onChange: (sw: {
+    gateway_mode?: AntiBlockData["gateway_mode"];
+    origin_open?: boolean;
+    panel_gateway_only?: boolean;
+  }) => void;
 }) {
   const { t } = useTranslation();
   const g = data.gateway;
@@ -234,8 +246,26 @@ function GatewayCard({
             <option value="external">{t("antiblock.gatewayModeExternal")}</option>
           </Select>
         </Field>
+        {g.panel_url && (
+          <Field label={t("antiblock.panelUrl")} hint={t("antiblock.panelUrlHint")}>
+            <div className="flex items-center gap-2">
+              <code className="text-xs font-mono break-all text-white/80">{g.panel_url}</code>
+              <CopyButton text={g.panel_url} />
+            </div>
+          </Field>
+        )}
         {g.mode === "builtin" && (
           <>
+            <p className="text-xs text-white/50">{t("antiblock.panelOnlyHint")}</p>
+            <Toggle
+              checked={data.panel_gateway_only}
+              onChange={(v) => onChange({ panel_gateway_only: v })}
+              disabled={busy || (!data.panel_gateway_only && !(g.running && g.cert_expires))}
+              label={t("antiblock.panelOnlyLabel")}
+            />
+            {!data.panel_gateway_only && !(g.running && g.cert_expires) && (
+              <p className="text-xs text-amber-300">{t("antiblock.panelOnlyNeedsGateway")}</p>
+            )}
             <p className="text-xs text-white/50">{t("antiblock.cfOnlyHint")}</p>
             <Toggle
               checked={!data.origin_open}

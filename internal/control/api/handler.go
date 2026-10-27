@@ -39,11 +39,17 @@ type Handler struct {
 	// gateway is the built-in edge gateway (nil until SetGateway; it needs the
 	// finished router to serve /sub/*, so it is attached after NewRouter).
 	gateway *gateway.Gateway
+	// panelGatewayOnly mirrors the anti-blocking switch for the panel
+	// listener guard (see GuardPanelListener).
+	panelGatewayOnly atomic.Bool
 }
 
 // SetGateway attaches the built-in edge gateway so anti-blocking changes
 // reconcile it and the panel can show its state.
-func (h *Handler) SetGateway(g *gateway.Gateway) { h.gateway = g }
+func (h *Handler) SetGateway(g *gateway.Gateway) {
+	h.gateway = g
+	g.SetPanel(h.PanelRequestAllowed, h.PanelPath)
+}
 
 // HandlerDeps groups optional dependencies so adding new ones doesn't keep
 // growing NewHandler's argument list.

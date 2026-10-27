@@ -4,11 +4,15 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/bootstrap"
 )
 
@@ -66,4 +70,55 @@ func (h *Handler) setGateCookie(c *gin.Context, token string) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   60 * 60 * 24 * 30,
 	})
+}
+
+// PanelRequestAllowed is checkPanelGate for the built-in edge gateway, which
+// sees plain *http.Request: the secret panel path itself, or any request that
+// carries the gate cookie that path issued. Everything else stays a 404 there.
+func (h *Handler) PanelRequestAllowed(r *http.Request) bool {
+	panelPath, _ := h.store.GetSetting(bootstrap.KeyPanelPath)
+	if panelPath == "" {
+		return false // never fail open on the public edge
+	}
+	if p := r.URL.Path; p == panelPath || strings.HasPrefix(p, panelPath+"/") {
+		return true
+	}
+	ck, err := r.Cookie(panelGateCookieName)
+	if err != nil || ck.Value == "" {
+		return false
+	}
+	return hmac.Equal([]byte(ck.Value), []byte(h.panelGateToken(panelPath)))
+}
+
+// PanelPath is the secret panel path, for the URL the gateway advertises.
+func (h *Handler) PanelPath() string {
+	p, _ := h.store.GetSetting(bootstrap.KeyPanelPath)
+	return p
+}
+
+// GuardPanelListener wraps the panel's own listener: while "panel only via
+// the gateway" is on, connections from anywhere but loopback are closed
+// before a byte is read, so the panel port looks closed from outside. The
+// switch is read on every accept, so toggling it needs no restart.
+func (h *Handler) GuardPanelListener(ln net.Listener) net.Listener {
+	h.panelGatewayOnly.Store(antiblock.Load(h.store).PanelViaGatewayOnly)
+	return &panelListener{Listener: ln, only: &h.panelGatewayOnly}
+}
+
+type panelListener struct {
+	net.Listener
+	only *atomic.Bool
+}
+
+func (l *panelListener) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil || !l.only.Load() {
+			return c, err
+		}
+		if ap, perr := netip.ParseAddrPort(c.RemoteAddr().String()); perr == nil && ap.Addr().Unmap().IsLoopback() {
+			return c, nil
+		}
+		_ = c.Close()
+	}
 }

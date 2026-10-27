@@ -58,6 +58,15 @@ func (h *Handler) PutAntiBlock(c *gin.Context) {
 			"低调模式会关掉所有直连入站, 但本节点还没有「经反代域名」入站 — 开启后所有用户都会断线。请先用向导创建一个经反代域名的 VLESS-WS 入站。")
 		return
 	}
+	// Closing the panel port is only safe while the gateway actually serves
+	// the panel; otherwise the operator would lock themselves out.
+	if next.PanelViaGatewayOnly && !antiblock.Load(h.store).PanelViaGatewayOnly {
+		if h.gateway == nil || h.gateway.Status().Mode != gateway.ModeBuiltin || !h.gateway.Status().Running || h.gateway.Status().CertExpires == 0 {
+			core.Fail(c, http.StatusBadRequest, "GATEWAY_NOT_READY",
+				"内置网关还没正常运行（或还没拿到证书），现在关闭面板端口会把你锁在外面。请等网关显示「运行中」并有证书后再开启。")
+			return
+		}
+	}
 	prev := antiblock.Load(h.store)
 	if err := antiblock.Save(h.store, next); err != nil {
 		core.Fail(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
@@ -70,6 +79,7 @@ func (h *Handler) PutAntiBlock(c *gin.Context) {
 		"mirrors":       strconv.Itoa(len(next.Mirrors)),
 		"stealth":       strconv.FormatBool(next.Stealth),
 	})
+	h.panelGatewayOnly.Store(next.PanelViaGatewayOnly)
 	if h.gateway != nil {
 		h.gateway.Reconcile(context.Background())
 	}

@@ -206,3 +206,40 @@ func TestCFListenerDropsOthers(t *testing.T) {
 		t.Fatalf("loopback should pass: %v %q", err, buf)
 	}
 }
+
+// The panel answers through the gateway only for its secret path or a request
+// carrying the gate cookie; anything else stays the neutral 404.
+func TestPanelThroughGateway(t *testing.T) {
+	st, nodeID := newStore(t)
+	panel := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "panel:"+r.URL.Path) })
+	g := New(st, nil, panel, nodeID)
+	g.SetPanel(func(r *http.Request) bool {
+		if strings.HasPrefix(r.URL.Path, "/ENPanel-x") {
+			return true
+		}
+		c, err := r.Cookie("edgenest_gate")
+		return err == nil && c.Value == "ok"
+	}, func() string { return "/ENPanel-x" })
+
+	cases := []struct {
+		path, cookie, want string
+	}{
+		{"/ENPanel-x", "", "panel:/ENPanel-x"},
+		{"/api/v1/inbounds", "ok", "panel:/api/v1/inbounds"},
+		{"/assets/index.js", "ok", "panel:/assets/index.js"},
+		{"/api/v1/inbounds", "", "404 Not Found"},
+		{"/api/health", "bad", "404 Not Found"},
+		{"/", "", "404 Not Found"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest("GET", c.path, nil)
+		if c.cookie != "" {
+			req.AddCookie(&http.Cookie{Name: "edgenest_gate", Value: c.cookie})
+		}
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, req)
+		if !strings.Contains(rec.Body.String(), c.want) {
+			t.Errorf("%s (cookie %q): got %q, want %q", c.path, c.cookie, rec.Body.String(), c.want)
+		}
+	}
+}

@@ -2300,6 +2300,11 @@ const vi = {
     gatewayModeExternal: "Reverse proxy của tôi (Caddy / Nginx)",
     cfOnlyLabel: "Chỉ cho Cloudflare truy cập 443 (khuyến nghị)",
     cfOnlyHint: "Khi bật, kết nối tới 443 đi thẳng vào IP máy chủ sẽ bị đóng ngay, kẻ dò quét không thấy gì; chỉ lưu lượng qua Cloudflare được vào. Tên miền reverse proxy phải giữ mây cam.",
+    panelUrl: "Địa chỉ panel (qua cổng, HTTPS)",
+    panelUrlHint: "Mở panel từ bất cứ đâu bằng địa chỉ này: HTTPS toàn tuyến, qua Cloudflare, không lộ IP máy chủ. Đường dẫn trong địa chỉ là khóa bí mật của panel — đừng chia sẻ.",
+    panelOnlyLabel: "Panel chỉ truy cập qua cổng (đóng cổng panel với internet)",
+    panelOnlyHint: "Khi bật, cổng riêng của panel chỉ nhận kết nối từ chính máy chủ này nên máy quét không tìm thấy; bạn vẫn dùng địa chỉ HTTPS phía trên. Nếu cổng gặp sự cố, vẫn vào được bằng SSH tunnel.",
+    panelOnlyNeedsGateway: "Chỉ bật được khi cổng tích hợp đang chạy và đã có chứng chỉ — nếu không bạn sẽ tự khóa mình khỏi panel.",
   },
 } as const;
 
