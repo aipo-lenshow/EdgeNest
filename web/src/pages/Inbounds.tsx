@@ -937,7 +937,17 @@ function InboundFormModal({
               setField={setAdvField}
               port={Number(port) || 0}
             />
-          ) : null}
+          ) : (
+            // Editing keeps the protocol's settings as they are; only the
+            // certificate can be switched here.
+            <ProtocolAdvancedForm
+              type={type}
+              advanced={advanced}
+              setField={setAdvField}
+              port={Number(port) || 0}
+              certOnly
+            />
+          )}
 
           <ErrorText>{err}</ErrorText>
         </div>
@@ -956,11 +966,13 @@ function ProtocolAdvancedForm({
   advanced,
   setField,
   port,
+  certOnly = false,
 }: {
   type: string;
   advanced: Record<string, any>;
   setField: (key: string, value: any) => void;
   port: number;
+  certOnly?: boolean;
 }) {
   const { t } = useTranslation();
   // Certificate choice for TLS protocols, shown when editing an inbound whose
@@ -990,6 +1002,10 @@ function ProtocolAdvancedForm({
         </Select>
       </Field>
     );
+  if (certOnly) {
+    const c = certSelect();
+    return c ? <div className="grid grid-cols-2 gap-4">{c}</div> : null;
+  }
   const sniSelect = (key = "sni") => (
     <Field
       label={t("inbounds.advSniLabel")}
