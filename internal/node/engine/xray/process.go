@@ -35,10 +35,9 @@ type process struct {
 
 // runCheck runs `xray -test -config <path> -format json` and returns combined
 // output. Xray's classic CLI accepts -test/-config (single-dash) since v1.x.
-// `-format json` is explicit because the staging path is `xray.json.new`
-// (atomic-swap pattern), which xray v26 no longer auto-detects from the
-// extension — it defaults to format="auto" but only matches `.json` / `.toml`
-// / `.yaml` suffixes.
+// `-format json` stays as a hint for older builds; the staging file itself is
+// named `xray.new.json` because Xray 26.10+ selects the loader purely from the
+// extension and refuses non-.json/.toml/.yaml names even with the flag.
 func (e *Engine) runCheck(path string) (string, error) {
 	cmd := exec.Command(e.binPath, "-test", "-config", path, "-format", "json")
 	var buf bytes.Buffer

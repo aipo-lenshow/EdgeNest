@@ -82,7 +82,9 @@ func (e *Engine) Apply(cfg core.DesiredConfig) (core.ApplyResult, error) {
 		return core.ApplyResult{OK: false, Message: "render: " + err.Error()}, nil
 	}
 
-	newPath := filepath.Join(e.workDir, "xray.json.new")
+	// Staged under a .json suffix: Xray 26.10+ picks the config loader from
+	// the file extension and rejects anything else, `-format json` or not.
+	newPath := filepath.Join(e.workDir, "xray.new.json")
 	if err := writeFileAtomic(newPath, rendered, 0o600); err != nil {
 		return core.ApplyResult{OK: false, Message: "stage: " + err.Error()}, nil
 	}

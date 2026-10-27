@@ -123,25 +123,9 @@ func render(cfg core.DesiredConfig) ([]byte, error) {
 	cap := core.ReadNodeCapability(capabilityPath)
 	domainStrategy := effectiveDomainStrategy(cap)
 
-	freedomOutbound := map[string]any{
-		"protocol": "freedom",
-		"tag":      "direct",
-	}
-	if domainStrategy != "" {
-		freedomOutbound["settings"] = map[string]any{
-			"domainStrategy": domainStrategy,
-		}
-	}
-	freedomV4 := map[string]any{
-		"protocol": "freedom",
-		"tag":      "direct-v4",
-		"settings": map[string]any{"domainStrategy": "UseIPv4"},
-	}
-	freedomV6 := map[string]any{
-		"protocol": "freedom",
-		"tag":      "direct-v6",
-		"settings": map[string]any{"domainStrategy": "UseIPv6"},
-	}
+	freedomOutbound := freedom("direct", domainStrategy)
+	freedomV4 := freedom("direct-v4", "UseIPv4")
+	freedomV6 := freedom("direct-v6", "UseIPv6")
 	// IPv6 outbound source-bind, same diagnosis as sing-box:
 	// xray's auto-source on hosts with a non-conventional v6 default route
 	// (Vultr/RamNode ipv6net 6in4 tunnel: `default dev ipv6net`) picks the
@@ -585,4 +569,18 @@ func orDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// freedom builds a freedom outbound with the given resolution strategy ("" =
+// AsIs). The strategy lives in streamSettings.sockopt: freedom.domainStrategy
+// is deprecated since Xray 26.x (still auto-migrated, slated for removal),
+// and sockopt.domainStrategy is understood by every Xray the panel installs.
+func freedom(tag, domainStrategy string) map[string]any {
+	o := map[string]any{"protocol": "freedom", "tag": tag}
+	if domainStrategy != "" {
+		o["streamSettings"] = map[string]any{
+			"sockopt": map[string]any{"domainStrategy": domainStrategy},
+		}
+	}
+	return o
 }

@@ -64,11 +64,9 @@ func freedomStrategy(doc map[string]any) string {
 	if d == nil {
 		return "<no-direct-outbound>"
 	}
-	s, _ := d["settings"].(map[string]any)
-	if s == nil {
-		return ""
-	}
-	v, _ := s["domainStrategy"].(string)
+	ss, _ := d["streamSettings"].(map[string]any)
+	so, _ := ss["sockopt"].(map[string]any)
+	v, _ := so["domainStrategy"].(string)
 	return v
 }
 
