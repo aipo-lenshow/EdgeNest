@@ -5,7 +5,7 @@
 > 自部署的代理節點管理面板 —— 雙引擎、嚮導式、一鍵部署。
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-![Version](https://img.shields.io/badge/version-1.20.0626-green.svg)
+![Version](https://img.shields.io/badge/version-1.22.1027-green.svg)
 ![Engine](https://img.shields.io/badge/engine-sing--box%20%2B%20Xray-orange.svg)
 
 EdgeNest 幫助在網路受限環境中的使用者穩定存取 AI 工具、技術文件與學習資源。一條命令在你自己的 VPS 上把面板、訂閱分發與協議引擎全部跑起來，統一管理多協議入站、流量配額、憑證與出站最佳化，全程圖形介面，無需手改設定檔。
@@ -48,6 +48,7 @@ _面板支援 6 種語言 —— 用上方語言切換可看到對應語言的�
 
 **接入與出站最佳化**
 - **接入最佳化一體化** —— CDN 優選 IP、Argo 隧道、WARP 出站都在面板內一鍵設定
+- **防封鎖一體化** —— CDN 節點掛在你自己的網域下，由內建閘道直接提供服務（自動憑證、源站只放行 Cloudflare、無需另裝網站伺服器）；訂閱裡寫網域不寫 IP，伺服器換 IP 只需改解析；帶簽名的備用訂閱位址；敏感期一鍵「低調模式」關閉直連節點
 - **一鍵分類路由** —— 依 AI、串流、開發工具、廣告攔截等類別設定出站走向（走 WARP / 直連 / 攔截）
 - **服務可用性偵測** —— 一鍵偵測目前節點能否正常存取各類串流與 AI 服務
 - **依真實流量建分流** —— 即時擷取存取過的網域，一鍵產生各用戶端的分流規則
@@ -86,7 +87,7 @@ sudo bash scripts/install.sh
 包內已自帶 `edgenest` 與 `sing-box` 二進位檔，安裝指令碼會直接複用，跳過下載與現場編譯，適合小記憶體機器或離線分發。
 
 ```bash
-VER=1.20.0626
+VER=1.22.1027
 ARCH=amd64   # ARM64 機器改成 arm64
 curl -fsSL -O https://github.com/aipo-lenshow/EdgeNest/releases/download/v${VER}/edgenest-${VER}-linux-${ARCH}.tar.gz
 tar -xzf edgenest-${VER}-linux-${ARCH}.tar.gz
@@ -155,7 +156,7 @@ EdgeNest 負責產生節點，下面這些負責連線。它們是獨立專案�
 | 變數 | 預設 | 用途 |
 |---|---|---|
 | `EDGENEST_LANG` | 依 `$LANG` 偵測 | 面板與安裝語言（`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`） |
-| `EDGENEST_VERSION` | `1.20.0626` | 預編譯產物下載版本 |
+| `EDGENEST_VERSION` | `1.22.1027` | 預編譯產物下載版本 |
 | `EDGENEST_RELEASE_BASE` | GitHub Release 下載位址 | 預編譯產物的下載基址 |
 | `SINGBOX_VERSION` | `1.14.4` | sing-box 版本（始終帶 `with_v2ray_api` 流量統計） |
 | `XRAY_VERSION` | `26.10.21` | Xray 版本（選裝） |
