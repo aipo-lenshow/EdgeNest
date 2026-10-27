@@ -520,6 +520,11 @@ func (h *Handler) PublicSubscription(c *gin.Context) {
 	if mh, err := antiblock.MirrorsHeader(h.store); err == nil && mh != "" {
 		c.Header("X-EdgeNest-Mirrors", mh)
 	}
+	// Lets EdgeNest clients recognise an EdgeNest server even when the user
+	// imported the link as a generic subscription, so failover and mirrors
+	// apply to it. Served over the subscription's own HTTPS, never on the
+	// wire in clear.
+	c.Header("X-EdgeNest-Sub", "1")
 	c.Header("Cache-Control", "no-store, max-age=0")
 	c.Data(http.StatusOK, contentType, []byte(body))
 }
