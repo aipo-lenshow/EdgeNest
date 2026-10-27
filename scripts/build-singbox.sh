@@ -19,7 +19,7 @@
 #
 # Usage:
 #   scripts/build-singbox.sh                 # builds linux/amd64 (default)
-#   SINGBOX_VERSION=1.13.13 scripts/build-singbox.sh
+#   SINGBOX_VERSION=1.14.4 scripts/build-singbox.sh
 #   GOARCH=arm64 scripts/build-singbox.sh    # builds linux/arm64
 #
 # Output: bin/sing-box-<version>-linux-<arch>  (bin/ is gitignored; this is the
@@ -27,16 +27,14 @@
 
 set -euo pipefail
 
-SINGBOX_VERSION="${SINGBOX_VERSION:-1.13.13}"
+SINGBOX_VERSION="${SINGBOX_VERSION:-1.14.4}"
 GOOS="${GOOS:-linux}"
 GOARCH="${GOARCH:-amd64}"
 
-# The official release tag set for non-Android/Darwin platforms, copied verbatim
-# from sing-box release/DEFAULT_BUILD_TAGS_OTHERS, plus with_v2ray_api. If you
-# bump SINGBOX_VERSION, re-check that file in the new tag in case upstream
-# changed the default set.
-OFFICIAL_TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_ccm,with_ocm,badlinkname,tfogo_checklinkname0"
-TAGS="${OFFICIAL_TAGS},with_v2ray_api"
+# The official release tag set for non-Android/Darwin platforms is read from
+# the cloned tag's release/DEFAULT_BUILD_TAGS_OTHERS (upstream grows it between
+# versions — 1.14 added cloudflared / usbip / openvpn / openconnect), plus
+# with_v2ray_api. TAGS is set after the clone below.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 out_dir="${repo_root}/bin"
@@ -47,12 +45,15 @@ work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
 echo "==> sing-box v${SINGBOX_VERSION}  target ${GOOS}/${GOARCH}"
-echo "==> tags: ${TAGS}"
 echo "==> cloning official source (tag v${SINGBOX_VERSION})…"
 git clone --depth 1 --branch "v${SINGBOX_VERSION}" \
   https://github.com/SagerNet/sing-box.git "${work}/sing-box" >/dev/null 2>&1
 
 cd "${work}/sing-box"
+
+OFFICIAL_TAGS="$(tr -d '[:space:]' < release/DEFAULT_BUILD_TAGS_OTHERS)"
+TAGS="${OFFICIAL_TAGS},with_v2ray_api"
+echo "==> tags: ${TAGS}"
 
 # Mirror upstream's ldflags exactly (release/LDFLAGS + the version stamp + strip).
 # -checklinkname=0 is REQUIRED: sing-box's common/badtls //go:linkname's into

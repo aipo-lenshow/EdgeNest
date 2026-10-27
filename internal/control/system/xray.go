@@ -41,7 +41,7 @@ import (
 // PinnedXrayVersion is the version EdgeNest installs when the operator clicks
 // "Install" in the panel. Bumping this is the only thing required to ship a
 // new xray-core — refresh the version, leave the rest alone.
-const PinnedXrayVersion = "26.3.27"
+const PinnedXrayVersion = "26.10.21"
 
 const (
 	XrayBinPath  = "/usr/local/bin/xray"

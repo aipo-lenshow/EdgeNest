@@ -157,8 +157,8 @@ EdgeNest tạo ra các node; những dự án dưới đây kết nối tới ch
 | `EDGENEST_LANG` | nhận diện từ `$LANG` | Ngôn ngữ bảng điều khiển và trình cài đặt (`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`) |
 | `EDGENEST_VERSION` | `1.20.0626` | Phiên bản dùng khi tải binary dựng sẵn |
 | `EDGENEST_RELEASE_BASE` | nguồn tải GitHub Release | URL gốc cho các binary dựng sẵn |
-| `SINGBOX_VERSION` | `1.13.13` | Phiên bản sing-box (luôn dựng kèm tag thống kê lưu lượng `with_v2ray_api`) |
-| `XRAY_VERSION` | `26.3.27` | Phiên bản Xray (tùy chọn) |
+| `SINGBOX_VERSION` | `1.14.4` | Phiên bản sing-box (luôn dựng kèm tag thống kê lưu lượng `with_v2ray_api`) |
+| `XRAY_VERSION` | `26.10.21` | Phiên bản Xray (tùy chọn) |
 | `GO_VERSION` | `1.26.0` | Dùng khi cần dựng từ mã nguồn và chưa có Go |
 | `NODE_MAJOR` | `20` | Dùng khi cần dựng frontend từ mã nguồn và chưa có Node |
 

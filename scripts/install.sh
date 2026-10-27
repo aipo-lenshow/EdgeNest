@@ -49,8 +49,8 @@ Env var overrides:
   EDGENEST_LANG          en | zh | zh-TW | fa | ru | vi (overrides $LANG-detected default; --lang= wins over this)
   EDGENEST_VERSION       (default 1.21.0708, used for prebuilt download URL)
   EDGENEST_RELEASE_BASE  (default https://github.com/aipo-lenshow/EdgeNest/releases/download)
-  SINGBOX_VERSION        (default 1.13.13; always built/obtained with the with_v2ray_api tag)
-  XRAY_VERSION           (default 26.3.27)
+  SINGBOX_VERSION        (default 1.14.4; always built/obtained with the with_v2ray_api tag)
+  XRAY_VERSION           (default 26.10.21)
   GO_VERSION             (default 1.25.0, used if edgenest OR sing-box needs a source build + Go missing)
   NODE_MAJOR             (default 20, used only if edgenest source build needed + Node missing)
 EOF
@@ -61,8 +61,8 @@ done
 # ---- Pinned versions ----
 EDGENEST_VERSION="${EDGENEST_VERSION:-1.21.0708}"
 EDGENEST_RELEASE_BASE="${EDGENEST_RELEASE_BASE:-https://github.com/aipo-lenshow/EdgeNest/releases/download}"
-SINGBOX_VERSION="${SINGBOX_VERSION:-1.13.13}"
-XRAY_VERSION="${XRAY_VERSION:-26.3.27}"
+SINGBOX_VERSION="${SINGBOX_VERSION:-1.14.4}"
+XRAY_VERSION="${XRAY_VERSION:-26.10.21}"
 GO_VERSION="${GO_VERSION:-1.26.0}"
 NODE_MAJOR="${NODE_MAJOR:-20}"
 
@@ -1762,10 +1762,10 @@ _singbox_verify() {
 ensure_go_toolchain() {
   if command -v go >/dev/null 2>&1; then
     local gv; gv=$(go version | awk '{print $3}' | sed 's/go//')
-    # sing-box 1.13.13 go.mod requires go 1.24.7 — reuse the system Go only if it
-    # meets that floor, else install_go (GO_VERSION=1.25.0 ≥ 1.24.7). Re-check this
+    # sing-box 1.14.4 go.mod requires go 1.25.5 — reuse the system Go only if it
+    # meets that floor, else install_go (GO_VERSION ≥ 1.25.5). Re-check this
     # floor against the new go.mod whenever SINGBOX_VERSION is bumped.
-    if printf '%s\n%s\n' "1.24.7" "$gv" | sort -V -C; then return; fi
+    if printf '%s\n%s\n' "1.25.5" "$gv" | sort -V -C; then return; fi
   fi
   install_go
 }

@@ -158,8 +158,8 @@ version numbers.
 | `EDGENEST_LANG` | detected from `$LANG` | Panel and installer language (`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`) |
 | `EDGENEST_VERSION` | `1.20.0626` | Version used for the prebuilt artifact download |
 | `EDGENEST_RELEASE_BASE` | GitHub Release download base | Base URL for prebuilt artifacts |
-| `SINGBOX_VERSION` | `1.13.13` | sing-box version (always built with the `with_v2ray_api` traffic-stats tag) |
-| `XRAY_VERSION` | `26.3.27` | Xray version (optional) |
+| `SINGBOX_VERSION` | `1.14.4` | sing-box version (always built with the `with_v2ray_api` traffic-stats tag) |
+| `XRAY_VERSION` | `26.10.21` | Xray version (optional) |
 | `GO_VERSION` | `1.26.0` | Used when a source build is needed and Go is absent |
 | `NODE_MAJOR` | `20` | Used when a frontend source build is needed and Node is absent |
 

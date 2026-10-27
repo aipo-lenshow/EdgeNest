@@ -98,7 +98,8 @@ func effectiveStrategy(cap core.NodeCapability) string {
 	}
 }
 
-// render maps DesiredConfig → sing-box v1.13.x JSON bytes (indented).
+// render maps DesiredConfig → sing-box JSON bytes (indented) in the schema
+// introduced by v1.13 and kept by the pinned v1.14.x.
 //
 // Only inbounds with Engine == EngineSingbox are emitted. Outbounds + routes
 // are shared across engines, so we always emit them.

@@ -157,8 +157,8 @@ EdgeNest 負責產生節點，下面這些負責連線。它們是獨立專案�
 | `EDGENEST_LANG` | 依 `$LANG` 偵測 | 面板與安裝語言（`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`） |
 | `EDGENEST_VERSION` | `1.20.0626` | 預編譯產物下載版本 |
 | `EDGENEST_RELEASE_BASE` | GitHub Release 下載位址 | 預編譯產物的下載基址 |
-| `SINGBOX_VERSION` | `1.13.13` | sing-box 版本（始終帶 `with_v2ray_api` 流量統計） |
-| `XRAY_VERSION` | `26.3.27` | Xray 版本（選裝） |
+| `SINGBOX_VERSION` | `1.14.4` | sing-box 版本（始終帶 `with_v2ray_api` 流量統計） |
+| `XRAY_VERSION` | `26.10.21` | Xray 版本（選裝） |
 | `GO_VERSION` | `1.26.0` | 需原始碼建置且系統無 Go 時使用 |
 | `NODE_MAJOR` | `20` | 需前端原始碼建置且系統無 Node 時使用 |
 

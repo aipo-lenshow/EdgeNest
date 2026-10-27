@@ -18,13 +18,15 @@ import (
 )
 
 // SingboxPinnedVersion is the pinned sing-box major.minor.patch.
-// ADR-003 (revised in v0.03): we now ride v1.13.x. The v1.10 → v1.13
+// ADR-003 (revised in v0.03, bumped to 1.14 in v1.22): we ride v1.14.x, whose
+// config schema for everything the renderer emits is unchanged from 1.13
+// (every protocol re-checked with `sing-box check` against 1.14.4). The v1.10 → v1.13
 // rewrite removed: legacy "dns" outbound (replaced by rule_action
 // hijack-dns), inbound-level sniff (replaced by rule_action sniff). If the
 // installed binary reports a different MAJOR.MINOR we refuse to apply
 // because the renderer emits 1.13-only schema (rule_action, typed Hysteria2
 // masquerade, anytls inbound).
-const SingboxPinnedVersion = "1.13.13"
+const SingboxPinnedVersion = "1.14.4"
 
 // Engine implements engine.ProxyEngine for sing-box. One per node.
 type Engine struct {
