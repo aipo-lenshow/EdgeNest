@@ -711,6 +711,7 @@ const en = {
     advCertLabel: "Certificate",
     advCertHint: "With the self-signed certificate, clients skip verification. Pick an issued certificate (from the Certificates page) and clients handshake with that domain and verify it normally; the SNI switches to it as well.",
     advCertSelfSigned: "Self-signed (clients skip verification)",
+    advCertCurrentFile: "Current: {{path}} (not on the certificates list)",
   },
   inboundsWizard: {
     title: "New inbound · step {{step}}/{{total}}",

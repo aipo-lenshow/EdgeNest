@@ -34,6 +34,13 @@ func TestApplyCertDomain(t *testing.T) {
 	if msg := h.applyCertDomain(n.ID, s, ""); msg != "" || s["tls_cert_path"] != defaultWizardCertPath || s["self_signed"] != "true" || s["acme_managed"] != nil {
 		t.Fatalf("self-signed: %v %q", s, msg)
 	}
+	if d, _ := h.inboundCertDomain(n.ID, `{"tls_cert_path":"/other/fullchain.pem"}`); d != keepCertPrefix+"/other/fullchain.pem" {
+		t.Fatalf("unmanaged file: %q", d)
+	}
+	before := s["tls_cert_path"]
+	if msg := h.applyCertDomain(n.ID, s, keepCertPrefix+"/other/fullchain.pem"); msg != "" || s["tls_cert_path"] != before {
+		t.Fatalf("keep changed settings: %v %q", s, msg)
+	}
 	if msg := h.applyCertDomain(n.ID, s, "missing.example.com"); msg == "" {
 		t.Fatal("missing cert should be refused")
 	}

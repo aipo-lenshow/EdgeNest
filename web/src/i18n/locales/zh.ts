@@ -709,6 +709,7 @@ const zh = {
     advCertLabel: "证书",
     advCertHint: "选「自签证书」时客户端会跳过证书校验。选一张已签发的证书（在「证书」页申请）后，客户端会用这个域名握手并正常校验，伪装域名也自动换成它。",
     advCertSelfSigned: "自签证书（客户端跳过校验）",
+    advCertCurrentFile: "当前：{{path}}（不在证书列表里）",
   },
   inboundsWizard: {
     title: "新建入站 · 第 {{step}}/{{total}} 步",

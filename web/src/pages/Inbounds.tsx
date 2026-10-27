@@ -975,6 +975,11 @@ function ProtocolAdvancedForm({
       <Field label={t("inbounds.advCertLabel")} hint={t("inbounds.advCertHint")}>
         <Select value={advanced.cert_domain ?? ""} onChange={(e) => setField("cert_domain", e.target.value)}>
           <option value="">{t("inbounds.advCertSelfSigned")}</option>
+          {String(advanced.cert_domain).startsWith("keep:") && (
+            <option value={advanced.cert_domain}>
+              {t("inbounds.advCertCurrentFile", { path: String(advanced.cert_domain).slice(5) })}
+            </option>
+          )}
           {(certs.data ?? [])
             .filter((c) => c.cert_path)
             .map((c) => (
