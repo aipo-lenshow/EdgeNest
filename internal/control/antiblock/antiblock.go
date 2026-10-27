@@ -306,8 +306,10 @@ type EdgeRoute struct {
 
 // CaddySnippet renders the Caddyfile site block for the edge domain: the
 // subscription path to the panel, each edge inbound's WebSocket path to its
-// loopback port, and a bare 404 for everything else.
-func CaddySnippet(c Config, panelPort int, routes []EdgeRoute) string {
+// loopback port, the panel itself (its secret path, and later requests that
+// carry the gate cookie it issues — the panel re-checks that cookie), and a
+// bare 404 for everything else.
+func CaddySnippet(c Config, panelPort int, panelPath string, routes []EdgeRoute) string {
 	if c.EdgeDomain == "" {
 		return ""
 	}
@@ -318,6 +320,10 @@ func CaddySnippet(c Config, panelPort int, routes []EdgeRoute) string {
 	}
 	for _, r := range routes {
 		fmt.Fprintf(&b, "\thandle %s {\n\t\treverse_proxy 127.0.0.1:%d\n\t}\n", r.Path, r.Port)
+	}
+	if panelPort > 0 && panelPath != "" {
+		fmt.Fprintf(&b, "\thandle %s* {\n\t\treverse_proxy 127.0.0.1:%d\n\t}\n", panelPath, panelPort)
+		fmt.Fprintf(&b, "\t@panel header_regexp Cookie edgenest_gate=\n\thandle @panel {\n\t\treverse_proxy 127.0.0.1:%d\n\t}\n", panelPort)
 	}
 	b.WriteString("\thandle {\n\t\trespond 404\n\t}\n}\n")
 	return b.String()

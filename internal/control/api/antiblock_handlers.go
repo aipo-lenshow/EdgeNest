@@ -118,7 +118,7 @@ func (h *Handler) antiblockView(cfg antiblock.Config) antiblockView {
 	// The reverse-proxy snippet is only for operators whose own web server
 	// fronts the edge domain; the built-in gateway needs none.
 	if view.Gateway.Mode != gateway.ModeBuiltin {
-		view.CaddySnippet = antiblock.CaddySnippet(cfg, h.panelPort, routes)
+		view.CaddySnippet = antiblock.CaddySnippet(cfg, h.panelPort, h.PanelPath(), routes)
 	}
 	return view
 }

@@ -98,11 +98,12 @@ func TestMirrorsHeaderVerifies(t *testing.T) {
 }
 
 func TestCaddySnippet(t *testing.T) {
-	if CaddySnippet(Config{}, 2087, nil) != "" {
+	if CaddySnippet(Config{}, 2087, "/ENPanel-x", nil) != "" {
 		t.Fatal("snippet without an edge domain")
 	}
-	s := CaddySnippet(Config{EdgeDomain: "cdn.example.com"}, 2087, []EdgeRoute{{Path: "/a1b2", Port: 20001}})
-	for _, want := range []string{"cdn.example.com {", "handle /sub/*", "127.0.0.1:2087", "handle /a1b2", "127.0.0.1:20001", "respond 404"} {
+	s := CaddySnippet(Config{EdgeDomain: "cdn.example.com"}, 2087, "/ENPanel-x", []EdgeRoute{{Path: "/a1b2", Port: 20001}})
+	for _, want := range []string{"cdn.example.com {", "handle /sub/*", "127.0.0.1:2087", "handle /a1b2", "127.0.0.1:20001",
+		"handle /ENPanel-x*", "header_regexp Cookie edgenest_gate=", "respond 404"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("snippet missing %q:\n%s", want, s)
 		}
