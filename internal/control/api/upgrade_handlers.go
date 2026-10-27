@@ -115,3 +115,11 @@ func (h *Handler) UpgradeStatus(c *gin.Context) {
 	}
 	core.OK(c, status)
 }
+
+// RunningVersion reports the version of the running service, so an open panel
+// page can notice it was upgraded underneath it and reload the new bundle.
+//
+// GET /api/v1/version
+func (h *Handler) RunningVersion(c *gin.Context) {
+	core.OK(c, gin.H{"version": Version})
+}

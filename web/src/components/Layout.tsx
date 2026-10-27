@@ -47,6 +47,30 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   });
   const updateAvailable = !!vcheck?.update_available;
 
+  // The version label and every screen are baked into the JS bundle, so after
+  // an upgrade (from this page, the bot or the server menu) an open page keeps
+  // showing the old version and the stale "update available" dot. Ask the
+  // service which version runs now and reload once when it differs; the
+  // sessionStorage guard stops a reload loop if the new bundle can't load.
+  const { data: running } = useQuery({
+    queryKey: ["running-version"],
+    queryFn: () => call<{ version: string }>(api.get("/version")),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+  useEffect(() => {
+    const v = running?.version;
+    if (!v || `v${v}` === APP_VERSION_LABEL) return;
+    try {
+      if (sessionStorage.getItem("edgenest_reloaded_for") === v) return;
+      sessionStorage.setItem("edgenest_reloaded_for", v);
+    } catch {
+      return;
+    }
+    window.location.reload();
+  }, [running?.version]);
+
   // Adopt the panel-wide display timezone so every timestamp (via fmtTime)
   // renders consistently regardless of which browser the operator uses. Empty
   // display_tz means "follow server", so fall back to the detected server zone.

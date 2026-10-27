@@ -113,12 +113,34 @@ type panelListener struct {
 func (l *panelListener) Accept() (net.Conn, error) {
 	for {
 		c, err := l.Listener.Accept()
-		if err != nil || !l.only.Load() {
+		if err != nil {
 			return c, err
 		}
 		if ap, perr := netip.ParseAddrPort(c.RemoteAddr().String()); perr == nil && ap.Addr().Unmap().IsLoopback() {
 			return c, nil
 		}
-		_ = c.Close()
+		if l.only.Load() {
+			_ = c.Close()
+			continue
+		}
+		return &panelConn{Conn: c, only: l.only}, nil
 	}
+}
+
+// panelConn is an outside connection accepted while the panel port was open.
+// Browsers keep such a connection alive indefinitely (the panel polls), so
+// turning the switch on must also end connections that already exist: the
+// next read after the switch flips closes it, after the response in flight
+// (the one that saved the switch) has gone out.
+type panelConn struct {
+	net.Conn
+	only *atomic.Bool
+}
+
+func (c *panelConn) Read(p []byte) (int, error) {
+	if c.only.Load() {
+		_ = c.Conn.Close()
+		return 0, net.ErrClosed
+	}
+	return c.Conn.Read(p)
 }

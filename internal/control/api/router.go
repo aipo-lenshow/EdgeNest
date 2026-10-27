@@ -59,6 +59,7 @@ func (h *Handler) NewRouter() *gin.Engine {
 
 		// Self-upgrade: live "check now" + kick off (detached) + poll status.
 		authed.GET("/version/check", h.VersionCheck)
+		authed.GET("/version", h.RunningVersion)
 		authed.POST("/upgrade", h.Upgrade)
 		authed.GET("/upgrade/status", h.UpgradeStatus)
 
@@ -251,6 +252,9 @@ func (h *Handler) mountSPA(r *gin.Engine) {
 			c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(devPlaceholderHTML))
 			return
 		}
+		// Always revalidate the page shell, so a reload after an upgrade picks
+		// up the new bundle names (the hashed assets themselves can cache).
+		c.Header("Cache-Control", "no-cache")
 		c.Data(http.StatusOK, "text/html; charset=utf-8", h.injectDefaultLang(index))
 	})
 }
