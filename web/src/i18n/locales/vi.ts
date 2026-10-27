@@ -707,6 +707,9 @@ const vi = {
     toggleSwitching: "Đang chuyển…",
     shareHostLabel: "Host:",
     shareClientLabel: "người dùng",
+    advCertLabel: "Chứng chỉ",
+    advCertHint: "Với chứng chỉ tự ký, client bỏ qua xác minh. Chọn một chứng chỉ đã cấp (ở trang Chứng chỉ) thì client bắt tay bằng tên miền đó và xác minh bình thường; SNI cũng chuyển sang tên miền đó.",
+    advCertSelfSigned: "Tự ký (client bỏ qua xác minh)",
   },
   inboundsWizard: {
     title: "Luồng vào mới · bước {{step}}/{{total}}",

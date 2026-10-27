@@ -283,6 +283,11 @@ func (h *Handler) GetInbound(c *gin.Context) {
 		return
 	}
 	advanced, parseErr := ParseInboundAdvanced(in.Type, in.Settings)
+	if parseErr == nil && certSelectable[in.Type] {
+		if d, ok := h.inboundCertDomain(in.NodeID, in.Settings); ok {
+			advanced["cert_domain"] = d
+		}
+	}
 	in.Settings = scrubInboundSettings(in.Settings)
 	resp := inboundDetailResponse{Inbound: in, Advanced: advanced}
 	if parseErr != nil {
@@ -407,6 +412,14 @@ func (h *Handler) UpdateInbound(c *gin.Context) {
 		if err != nil {
 			core.Fail(c, http.StatusInternalServerError, "AUTOFILL", err.Error())
 			return
+		}
+		if req.Advanced != nil && certSelectable[in.Type] {
+			if d, ok := (*req.Advanced)["cert_domain"].(string); ok {
+				if msg := h.applyCertDomain(in.NodeID, filled, d); msg != "" {
+					core.Fail(c, http.StatusBadRequest, "CERT_NOT_FOUND", msg)
+					return
+				}
+			}
 		}
 		if msg := cdnPortGate(in.Type, in.Port, filled); msg != "" {
 			core.Fail(c, http.StatusBadRequest, "CDN_PORT", msg)

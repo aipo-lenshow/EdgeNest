@@ -704,6 +704,9 @@ const zhTW = {
     toggleSwitching: "切換中…",
     shareHostLabel: "Host:",
     shareClientLabel: "使用者",
+    advCertLabel: "憑證",
+    advCertHint: "選「自簽憑證」時用戶端會跳過憑證驗證。選一張已簽發的憑證（在「憑證」頁申請）後，用戶端會用這個網域握手並正常驗證，偽裝網域也自動換成它。",
+    advCertSelfSigned: "自簽憑證（用戶端跳過驗證）",
   },
   inboundsWizard: {
     title: "新建入站 · 第 {{step}}/{{total}} 步",

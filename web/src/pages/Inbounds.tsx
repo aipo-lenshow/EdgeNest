@@ -963,6 +963,28 @@ function ProtocolAdvancedForm({
   port: number;
 }) {
   const { t } = useTranslation();
+  // Certificate choice for TLS protocols, shown when editing an inbound whose
+  // certificate the panel manages (the detail API reports cert_domain).
+  const certs = useQuery({
+    queryKey: ["certs"],
+    queryFn: () => call<{ domain: string; cert_path: string; expires_at: number }[]>(api.get("/certs")),
+    enabled: advanced.cert_domain !== undefined,
+  });
+  const certSelect = () =>
+    advanced.cert_domain === undefined ? null : (
+      <Field label={t("inbounds.advCertLabel")} hint={t("inbounds.advCertHint")}>
+        <Select value={advanced.cert_domain ?? ""} onChange={(e) => setField("cert_domain", e.target.value)}>
+          <option value="">{t("inbounds.advCertSelfSigned")}</option>
+          {(certs.data ?? [])
+            .filter((c) => c.cert_path)
+            .map((c) => (
+              <option key={c.domain} value={c.domain}>
+                {c.domain}
+              </option>
+            ))}
+        </Select>
+      </Field>
+    );
   const sniSelect = (key = "sni") => (
     <Field
       label={t("inbounds.advSniLabel")}
@@ -1145,6 +1167,7 @@ function ProtocolAdvancedForm({
     case "hysteria2":
       return (
         <div className="grid grid-cols-2 gap-4">
+          {certSelect()}
           <Field
             label={t("inbounds.advHy2Obfs")}
             hint={t("inbounds.advHy2ObfsHint")}
@@ -1186,6 +1209,7 @@ function ProtocolAdvancedForm({
     case "trojan":
       return (
         <div className="grid grid-cols-2 gap-4">
+          {certSelect()}
           {sniSelect()}
           <Field
             label={t("inbounds.advAcmeManaged")}
@@ -1238,6 +1262,7 @@ function ProtocolAdvancedForm({
     case "tuic":
       return (
         <div className="grid grid-cols-2 gap-4">
+          {certSelect()}
           <Field
             label={t("inbounds.advTuicCC")}
             hint={t("inbounds.advTuicCCHint")}
@@ -1277,6 +1302,7 @@ function ProtocolAdvancedForm({
     case "anytls":
       return (
         <div className="grid grid-cols-2 gap-4">
+          {certSelect()}
           {sniSelect()}
           <Field
             label={t("inbounds.advAcmeManaged")}
