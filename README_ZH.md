@@ -5,7 +5,7 @@
 > 自部署的代理节点管理面板 —— 双引擎、向导式、一键部署。
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-![Version](https://img.shields.io/badge/version-1.30.1027-green.svg)
+![Version](https://img.shields.io/badge/version-1.31.1027-green.svg)
 ![Engine](https://img.shields.io/badge/engine-sing--box%20%2B%20Xray-orange.svg)
 
 EdgeNest 帮助在网络受限环境中的用户稳定访问 AI 工具、技术文档与学习资源。一条命令在你自己的 VPS 上把面板、订阅分发与协议引擎全部跑起来，统一管理多协议入站、流量配额、证书与出站优化，全程图形界面，无需手改配置文件。
@@ -87,7 +87,7 @@ sudo bash scripts/install.sh
 包内已自带 `edgenest` 与 `sing-box` 二进制，安装脚本会直接复用，跳过下载与现场编译，适合小内存机器或离线分发。
 
 ```bash
-VER=1.30.1027
+VER=1.31.1027
 ARCH=amd64   # ARM64 机器改成 arm64
 curl -fsSL -O https://github.com/aipo-lenshow/EdgeNest/releases/download/v${VER}/edgenest-${VER}-linux-${ARCH}.tar.gz
 tar -xzf edgenest-${VER}-linux-${ARCH}.tar.gz
@@ -156,7 +156,7 @@ EdgeNest 负责生成节点，下面这些负责连接它们。它们是独立�
 | 变量 | 默认 | 用途 |
 |---|---|---|
 | `EDGENEST_LANG` | 按 `$LANG` 探测 | 面板与安装语言（`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`） |
-| `EDGENEST_VERSION` | `1.30.1027` | 预编译产物下载版本 |
+| `EDGENEST_VERSION` | `1.31.1027` | 预编译产物下载版本 |
 | `EDGENEST_RELEASE_BASE` | GitHub Release 下载地址 | 预编译产物的下载基址 |
 | `SINGBOX_VERSION` | `1.14.4` | sing-box 版本（始终带 `with_v2ray_api` 流量统计） |
 | `XRAY_VERSION` | `26.10.21` | Xray 版本（选装） |

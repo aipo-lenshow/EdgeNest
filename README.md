@@ -5,7 +5,7 @@
 > A self-hosted proxy node management panel — dual-engine, wizard-driven, one-command deploy.
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-![Version](https://img.shields.io/badge/version-1.30.1027-green.svg)
+![Version](https://img.shields.io/badge/version-1.31.1027-green.svg)
 ![Engine](https://img.shields.io/badge/engine-sing--box%20%2B%20Xray-orange.svg)
 
 EdgeNest helps users in network-restricted environments reach AI tools, technical documentation, and learning resources reliably. A single command brings the panel, subscription delivery, and proxy engines up on your own VPS, managing multi-protocol inbounds, traffic quotas, certificates, and outbound optimization in one place — all through a graphical interface, with no hand-editing of config files.
@@ -87,7 +87,7 @@ By default the installer downloads a prebuilt artifact from the GitHub Release, 
 The tarball bundles the `edgenest` and `sing-box` binaries, which the installer reuses directly — skipping both the download and any on-host compile. Handy for low-memory machines or offline distribution.
 
 ```bash
-VER=1.30.1027
+VER=1.31.1027
 ARCH=amd64   # use arm64 on ARM64 machines
 curl -fsSL -O https://github.com/aipo-lenshow/EdgeNest/releases/download/v${VER}/edgenest-${VER}-linux-${ARCH}.tar.gz
 tar -xzf edgenest-${VER}-linux-${ARCH}.tar.gz
@@ -157,7 +157,7 @@ version numbers.
 | Variable | Default | Purpose |
 |---|---|---|
 | `EDGENEST_LANG` | detected from `$LANG` | Panel and installer language (`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`) |
-| `EDGENEST_VERSION` | `1.30.1027` | Version used for the prebuilt artifact download |
+| `EDGENEST_VERSION` | `1.31.1027` | Version used for the prebuilt artifact download |
 | `EDGENEST_RELEASE_BASE` | GitHub Release download base | Base URL for prebuilt artifacts |
 | `SINGBOX_VERSION` | `1.14.4` | sing-box version (always built with the `with_v2ray_api` traffic-stats tag) |
 | `XRAY_VERSION` | `26.10.21` | Xray version (optional) |
