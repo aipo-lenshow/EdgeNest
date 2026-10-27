@@ -35,7 +35,7 @@ import (
 //
 //	curl -L https://github.com/cloudflare/cloudflared/releases/download/<ver>/cloudflared-linux-<arch> | sha256sum
 const (
-	pinnedVersion = "2025.5.0"
+	pinnedVersion = "2026.10.0"
 )
 
 // pinnedHashes maps GOOS/GOARCH → SHA-256 of the bare cloudflared binary at
@@ -51,8 +51,8 @@ const (
 //	  curl -sL "https://github.com/cloudflare/cloudflared/releases/download/$VERSION/cloudflared-$arch" | sha256sum
 //	done
 var pinnedHashes = map[string]string{
-	"linux/amd64": "a62266fd02041374f1fca0d85694aafdf7e26e171a314467356b471d4ebb2393",
-	"linux/arm64": "47e55e6eba2755239f641c2c4f89878643ac0d9eaa127a6c84a2cb43fa2e0f03",
+	"linux/amd64": "d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db",
+	"linux/arm64": "e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08",
 }
 
 // downloadURL returns the GitHub Releases URL for the pinned binary on the
