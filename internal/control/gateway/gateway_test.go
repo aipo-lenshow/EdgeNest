@@ -113,28 +113,27 @@ func TestRouting(t *testing.T) {
 	}
 }
 
-// Another program owns the port: auto mode neither fights it nor decides for
-// the operator — it reports a conflict with a free Cloudflare port, keeps the
+// Auto mode never takes a port on its own (at boot it could beat another web
+// server to 443): it reports pending with a free Cloudflare port, keeps the
 // loopback backend up for an external proxy, and persists nothing.
-func TestReconcileAutoBusyPortReportsConflict(t *testing.T) {
+func TestReconcileAutoStaysPending(t *testing.T) {
 	st, nodeID := newStore(t)
-	busy, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer busy.Close()
 	_ = antiblock.Save(st, antiblock.Config{EdgeDomain: "cdn.example.com"})
 	sub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "sub-ok") })
 	g := New(st, nil, sub, nodeID)
-	g.addr = busy.Addr().String()
+	g.addr = freeAddr(t)
 	g.Reconcile(context.Background())
 	defer g.stopBackend()
 	s := g.Status()
-	if s.Mode != ModeConflict || s.Running || s.Backend == "" {
+	if s.Mode != ModePending || s.Running || s.Backend == "" {
 		t.Fatalf("status = %+v", s)
 	}
+	if conn, err := net.Dial("tcp", g.addr); err == nil {
+		conn.Close()
+		t.Fatal("auto mode bound the public port by itself")
+	}
 	if antiblock.Load(st).GatewayMode != antiblock.GatewayAuto {
-		t.Fatal("a conflict must not be decided on the operator's behalf")
+		t.Fatal("auto mode must not decide on the operator's behalf")
 	}
 	// The backend routes like the gateway: an external proxy needs one rule.
 	resp, err := http.Get("http://" + s.Backend + "/sub/T")
@@ -160,12 +159,31 @@ func TestReconcileAutoBusyPortReportsConflict(t *testing.T) {
 	}
 }
 
+// Builtin on a port another program holds reports the error (and a free
+// alternative) instead of retrying forever silently.
+func TestReconcileBuiltinBusyPort(t *testing.T) {
+	st, nodeID := newStore(t)
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	_ = antiblock.Save(st, antiblock.Config{EdgeDomain: "cdn.example.com", GatewayMode: antiblock.GatewayBuiltin})
+	g := New(st, nil, nil, nodeID)
+	g.addr = busy.Addr().String()
+	g.Reconcile(context.Background())
+	defer g.stopBackend()
+	if s := g.Status(); s.Running || s.Error == "" {
+		t.Fatalf("status = %+v", s)
+	}
+}
+
 // End to end: edge domain set → certificate issued through the cert manager →
 // HTTPS on the gateway serves the subscription; the decision sticks as
 // builtin; a second reconcile doesn't re-issue.
 func TestReconcileBuiltinIssuesAndServes(t *testing.T) {
 	st, nodeID := newStore(t)
-	_ = antiblock.Save(st, antiblock.Config{EdgeDomain: "cdn.example.com", OriginOpen: true})
+	_ = antiblock.Save(st, antiblock.Config{EdgeDomain: "cdn.example.com", OriginOpen: true, GatewayMode: antiblock.GatewayBuiltin})
 	iss := &selfSignedIssuer{dir: t.TempDir()}
 	mgr := cert.NewManager(st, t.TempDir(), iss)
 	sub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "sub-ok") })
@@ -183,9 +201,6 @@ func TestReconcileBuiltinIssuesAndServes(t *testing.T) {
 	}
 	if s := g.Status(); s.Mode != ModeBuiltin || !s.Running || s.CertExpires == 0 {
 		t.Fatalf("status = %+v", s)
-	}
-	if antiblock.Load(st).GatewayMode != antiblock.GatewayBuiltin {
-		t.Fatal("auto decision not remembered as builtin")
 	}
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
 		InsecureSkipVerify: true, ServerName: "cdn.example.com"}}}

@@ -228,3 +228,63 @@ func (h *Handler) ensureEdgeInbound() (bool, int, error) {
 	}
 	return true, len(order), nil
 }
+
+// PutCloudflareToken stores the Cloudflare API token the edge gateway uses
+// for DNS validation when port 80 belongs to another program. The token is
+// checked against Cloudflare first, so a typo surfaces here and not as a
+// failed certificate later.
+//
+// PUT /api/v1/antiblock/cf-token
+func (h *Handler) PutCloudflareToken(c *gin.Context) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Token) == "" {
+		core.Fail(c, http.StatusBadRequest, "BAD_REQUEST", "token required")
+		return
+	}
+	tok := strings.TrimSpace(req.Token)
+	if err := verifyCloudflareToken(c.Request.Context(), tok); err != nil {
+		core.Fail(c, http.StatusBadRequest, "CF_TOKEN_INVALID", "Cloudflare 令牌校验失败: "+err.Error())
+		return
+	}
+	if err := h.store.SetSetting(gateway.CFTokenSetting, tok); err != nil {
+		core.Fail(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	h.auditLog(c, "antiblock.cf_token", "settings", nil)
+	if h.gateway != nil {
+		h.gateway.RetryCertificate()
+		h.gateway.Reconcile(context.Background())
+	}
+	core.OK(c, h.antiblockView(antiblock.Load(h.store)))
+}
+
+// cfVerifyURL is Cloudflare's token self-check endpoint (a seam for tests).
+var cfVerifyURL = "https://api.cloudflare.com/client/v4/user/tokens/verify"
+
+func verifyCloudflareToken(ctx context.Context, token string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfVerifyURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Success bool `json:"success"`
+		Result  struct {
+			Status string `json:"status"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return fmt.Errorf("unexpected response (%d)", resp.StatusCode)
+	}
+	if !body.Success || body.Result.Status != "active" {
+		return fmt.Errorf("token not active (%d)", resp.StatusCode)
+	}
+	return nil
+}

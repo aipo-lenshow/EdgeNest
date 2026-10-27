@@ -362,7 +362,7 @@ func buildInboundSpec(ib model.Inbound) (core.InboundSpec, error) {
 // certificate's HTTP-01 validation. None
 // when there is no edge domain or the operator's own web server fronts it.
 func gatewayPorts(ab antiblock.Config) []core.PortRule {
-	if ab.EdgeDomain == "" || ab.GatewayMode == antiblock.GatewayExternal {
+	if ab.EdgeDomain == "" || ab.GatewayMode != antiblock.GatewayBuiltin {
 		return nil
 	}
 	return []core.PortRule{

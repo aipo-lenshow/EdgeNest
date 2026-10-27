@@ -2123,7 +2123,10 @@ detect_node_capability() {
   local v4_addrs=() v6_addrs=()
   local ip pub
   for ip in "${v4_list[@]}"; do
-    pub=$(curl -fsS4 --interface "$ip" --max-time 5 https://icanhazip.com -k 2>/dev/null | tr -d '[:space:]')
+    # `|| true`: an address that can't reach the internet (a WARP / tunnel
+    # interface, a flaky v6) is simply not public — it must not abort the
+    # whole install under set -e / pipefail.
+    pub=$(curl -fsS4 --interface "$ip" --max-time 5 https://icanhazip.com -k 2>/dev/null | tr -d '[:space:]') || true
     if [ -n "$pub" ]; then
       local already=0
       for existing in "${v4_addrs[@]}"; do
@@ -2133,7 +2136,7 @@ detect_node_capability() {
     fi
   done
   for ip in "${v6_list[@]}"; do
-    pub=$(curl -fsS6 --interface "$ip" --max-time 5 https://icanhazip.com -k 2>/dev/null | tr -d '[:space:]')
+    pub=$(curl -fsS6 --interface "$ip" --max-time 5 https://icanhazip.com -k 2>/dev/null | tr -d '[:space:]') || true
     if [ -n "$pub" ]; then
       local already=0
       for existing in "${v6_addrs[@]}"; do

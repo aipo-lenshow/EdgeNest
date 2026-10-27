@@ -48,10 +48,12 @@ const (
 	ModeOff      = "off"      // no edge domain configured
 	ModeBuiltin  = "builtin"  // this gateway serves the edge domain itself
 	ModeExternal = "external" // the operator's own reverse proxy does
-	// ModeConflict: auto mode found port 443 taken by another program and is
-	// waiting for the operator to choose — forward from that program
-	// (external) or run the gateway on another Cloudflare port (AltPort).
-	ModeConflict = "conflict"
+	// ModePending: an edge domain is set but nobody has chosen who serves it
+	// yet. Auto mode never takes a port on its own — at boot it could beat
+	// another web server to 443 and knock that server's sites offline — so it
+	// reports who owns 443 (Owner) and a free Cloudflare port (AltPort) and
+	// waits for the one-click setup or an explicit choice.
+	ModePending = "pending"
 )
 
 // Status is what the panel shows next to the anti-blocking settings.
@@ -75,6 +77,10 @@ type Status struct {
 	Owner *portowner.Owner `json:"owner,omitempty"`
 	// AltPort is a free Cloudflare HTTPS port the gateway could use instead.
 	AltPort int `json:"alt_port,omitempty"`
+	// NeedCFToken: port 80 belongs to another program, so the certificate
+	// can't be validated over HTTP; a Cloudflare API token (DNS validation)
+	// is needed.
+	NeedCFToken bool `json:"need_cf_token,omitempty"`
 }
 
 // Issuer is the slice of cert.Manager the gateway uses (a seam for tests).
@@ -183,6 +189,13 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 		return
 	}
 
+	if cfg.GatewayMode == antiblock.GatewayAuto {
+		g.stop()
+		g.setStatus(Status{Mode: ModePending, Domain: cfg.EdgeDomain, Backend: backend,
+			Owner: portowner.Find(443), AltPort: g.freeAltPort()})
+		return
+	}
+
 	port := cfg.GatewayPort()
 	addr := g.addr
 	if addr == "" {
@@ -199,32 +212,26 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 	g.mu.Unlock()
 	if !running {
 		if err := g.start(addr, !cfg.OriginOpen); err != nil {
-			st := Status{Domain: cfg.EdgeDomain, Backend: backend, Port: port}
-			if cfg.GatewayMode == antiblock.GatewayAuto && port == 443 {
-				// Someone else owns 443. Don't decide for the operator and don't
-				// fight that program for the port: report who it is and a free
-				// Cloudflare port, and let the panel offer both ways forward.
-				st.Mode, st.Owner, st.AltPort = ModeConflict, portowner.Find(443), g.freeAltPort()
-			} else {
-				st.Mode, st.Error = ModeBuiltin, fmt.Sprintf("内置网关无法监听 %d 端口: %v", port, err)
-				st.Owner = portowner.Find(port)
-			}
-			g.setStatus(st)
+			g.setStatus(Status{Mode: ModeBuiltin, Domain: cfg.EdgeDomain, Backend: backend, Port: port,
+				Error: fmt.Sprintf("内置网关无法监听 %d 端口: %v", port, err), Owner: portowner.Find(port),
+				AltPort: g.freeAltPort()})
 			return
-		}
-		if cfg.GatewayMode == antiblock.GatewayAuto {
-			// Resolved once and remembered: a later boot that happens to start
-			// before some other web server must not grab the port it wanted.
-			_ = g.store.SetSetting(antiblock.KeyGatewayMode, antiblock.GatewayBuiltin)
 		}
 	}
 
 	crt, _ := g.findCert(cfg.EdgeDomain)
-	if crt == nil || time.Until(time.Unix(crt.ExpiresAt, 0)) < 0 {
-		g.issueAsync(ctx, cfg.EdgeDomain)
-	}
 	st := Status{Mode: ModeBuiltin, Running: true, Domain: cfg.EdgeDomain, CFOnly: !cfg.OriginOpen,
 		Port: port, Backend: backend}
+	if crt == nil || time.Until(time.Unix(crt.ExpiresAt, 0)) < 0 {
+		// HTTP-01 needs port 80; with another program on it the attempt can
+		// only fail (and Let's Encrypt rate-limits failures), so ask for a
+		// Cloudflare token instead and wait for it.
+		if !g.hasCFToken() && portowner.Find(80) != nil {
+			st.NeedCFToken = true
+		} else {
+			g.issueAsync(ctx, cfg.EdgeDomain)
+		}
+	}
 	if g.panel != nil && g.panelPath != nil {
 		if p := g.panelPath(); p != "" {
 			st.PanelURL = cfg.EdgeOrigin() + p
@@ -235,8 +242,11 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 		if crt.LastError != "" && time.Until(time.Unix(crt.ExpiresAt, 0)) < 0 {
 			st.Error = "证书申请失败: " + crt.LastError
 		}
+	} else if st.NeedCFToken {
+		owner := portowner.Find(80)
+		st.Error = fmt.Sprintf("80 端口被 %s 占用，无法用 HTTP 方式申请证书；请在下方填写 Cloudflare API 令牌，改用 DNS 方式申请", owner.Process)
 	} else if !g.isIssuing() {
-		st.Error = "还没有证书，正在申请（需要 80 端口可用，或在证书页配置 Cloudflare DNS 令牌）"
+		st.Error = "还没有证书，正在申请"
 	}
 	g.setStatus(st)
 }
@@ -355,7 +365,7 @@ func (g *Gateway) issueAsync(ctx context.Context, domain string) {
 			g.mu.Unlock()
 		}()
 		req := cert.IssueRequest{Domain: domain, Email: g.acmeEmail(domain), Mode: "http-01"}
-		if tok, _ := g.store.GetSetting("dns_cloudflare_api_token"); tok != "" {
+		if tok, _ := g.store.GetSetting(CFTokenSetting); tok != "" {
 			req.Mode, req.DNSProvider = "dns-01", "cloudflare"
 			req.DNSConfig = map[string]string{"api_token": tok}
 		}
@@ -368,6 +378,23 @@ func (g *Gateway) issueAsync(ctx context.Context, domain string) {
 		log.Printf("gateway: certificate for %s issued", domain)
 		g.Reconcile(ctx)
 	}()
+}
+
+// CFTokenSetting is where the cert manager keeps the Cloudflare DNS token
+// (the same key the certificates page writes), so renewals reuse it.
+const CFTokenSetting = "dns_cloudflare_api_token"
+
+func (g *Gateway) hasCFToken() bool {
+	v, _ := g.store.GetSetting(CFTokenSetting)
+	return v != ""
+}
+
+// RetryCertificate clears the failure backoff so the next Reconcile asks for
+// the certificate again (after the operator supplied a token).
+func (g *Gateway) RetryCertificate() {
+	g.mu.Lock()
+	g.lastIssue = time.Time{}
+	g.mu.Unlock()
 }
 
 func (g *Gateway) acmeEmail(domain string) string {

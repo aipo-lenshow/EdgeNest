@@ -27,9 +27,9 @@ type antiblockView struct {
 	Gateway      gateway.Status    `json:"gateway"`
 	// Port443 is whoever listens on 443 right now (nil = free, or the
 	// built-in gateway itself), for the one-click setup's choice.
-	Port443 *portowner.Owner `json:"port443,omitempty"`
-	EdgeInbounds []edgeInboundVM `json:"edge_inbounds"`
-	MirrorPubKey string          `json:"mirror_pubkey"`
+	Port443      *portowner.Owner `json:"port443,omitempty"`
+	EdgeInbounds []edgeInboundVM  `json:"edge_inbounds"`
+	MirrorPubKey string           `json:"mirror_pubkey"`
 }
 
 type edgeInboundVM struct {
@@ -50,7 +50,10 @@ func (h *Handler) GetAntiBlock(c *gin.Context) {
 //
 // PUT /api/v1/antiblock
 func (h *Handler) PutAntiBlock(c *gin.Context) {
-	var req antiblock.Config
+	// Start from what is stored: a field the request leaves out keeps its
+	// value instead of being reset (an older panel page or a script that
+	// doesn't know a newer field must not silently undo it).
+	req := antiblock.Load(h.store)
 	if err := c.ShouldBindJSON(&req); err != nil {
 		core.Fail(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
@@ -124,7 +127,7 @@ func (h *Handler) antiblockView(cfg antiblock.Config) antiblockView {
 	if !h.gatewayServes(443) {
 		view.Port443 = portowner.Find(443)
 	}
-	if view.Gateway.Mode == gateway.ModeExternal || view.Gateway.Mode == gateway.ModeConflict {
+	if view.Gateway.Mode == gateway.ModeExternal || view.Gateway.Mode == gateway.ModePending {
 		view.ProxyConfigs = antiblock.ProxyConfigs(cfg, view.Gateway.Backend)
 	}
 	return view

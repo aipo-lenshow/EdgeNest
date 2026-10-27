@@ -22,7 +22,8 @@ export interface AntiBlockData {
   origin_open: boolean;
   panel_gateway_only: boolean;
   gateway: {
-    mode: "off" | "builtin" | "external" | "conflict";
+    mode: "off" | "builtin" | "external" | "pending";
+    need_cf_token?: boolean;
     port?: number;
     backend?: string;
     owner?: { port: number; process: string; tool: string };
@@ -221,8 +222,10 @@ function GatewayCard({
         : t("antiblock.gatewayRunning")
       : g.mode === "external"
         ? t("antiblock.gatewayExternal")
-        : g.mode === "conflict"
-          ? t("antiblock.gatewayConflict", { process: g.owner?.process || "?" })
+        : g.mode === "pending"
+          ? g.owner
+            ? t("antiblock.gatewayConflict", { process: g.owner.process || "?" })
+            : t("antiblock.gatewayPending")
           : t("antiblock.gatewayStopped");
   return (
     <Card title={t("antiblock.gatewaySection")}>
@@ -240,7 +243,8 @@ function GatewayCard({
           ) : null}
         </div>
         {g.error && <p className="text-xs text-amber-300">{g.error}</p>}
-        {g.mode === "conflict" && (
+        {g.need_cf_token && <CloudflareTokenForm />}
+        {g.mode === "pending" && g.owner && (
           <div className="flex flex-wrap gap-2">
             <Button variant="default" disabled={busy} onClick={() => onChange({ gateway_mode: "external" })}>
               {t("antiblock.quickExternal", { process: g.owner?.process || "?" })}
@@ -413,5 +417,40 @@ function ProxyConfigCard({ data }: { data: AntiBlockData }) {
         )}
       </div>
     </Card>
+  );
+}
+
+// CloudflareTokenForm takes a Cloudflare API token when port 80 belongs to
+// another program, so the edge domain's certificate is validated over DNS.
+function CloudflareTokenForm() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [token, setToken] = useState("");
+  const [err, setErr] = useState("");
+  const save = useMutation({
+    mutationFn: () => call(api.put("/antiblock/cf-token", { token })),
+    onSuccess: () => {
+      setToken("");
+      setErr("");
+      qc.invalidateQueries({ queryKey: ["antiblock"] });
+    },
+    onError: (e: Error) => setErr(e.message),
+  });
+  return (
+    <div className="grid gap-2 rounded-lg border border-amber-400/30 bg-amber-400/5 p-3">
+      <p className="text-xs text-white/70 whitespace-pre-line">{t("antiblock.cfTokenSteps")}</p>
+      <div className="flex gap-2">
+        <Input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder={t("antiblock.cfTokenPlaceholder")}
+        />
+        <Button variant="primary" disabled={save.isPending || !token.trim()} onClick={() => save.mutate()}>
+          {t("common.save")}
+        </Button>
+      </div>
+      {err && <ErrorText>{err}</ErrorText>}
+    </div>
   );
 }
