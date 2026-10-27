@@ -182,6 +182,10 @@ func buildHysteria2Masquerade(s map[string]any) any {
 			"status_code": getInt(s, "masquerade_status_code", 200),
 			"content":     getString(s, "masquerade_content", ""),
 		}
+		if out["content"] == core.LegacyMasquerade {
+			out["content"] = core.NeutralMasquerade
+			out["status_code"] = core.NeutralMasqueradeStatus
+		}
 		if h, ok := s["masquerade_headers"]; ok {
 			out["headers"] = h
 		}

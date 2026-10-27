@@ -13,10 +13,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/cert"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/system"
+	"github.com/aipo-lenshow/EdgeNest/internal/core"
 )
 
 // hostFamily classifies a literal IP into "v4" or "v6" for the inbound-tag
@@ -188,6 +190,10 @@ type AdvancedOverrides struct {
 	ArgoDomain      string   `json:"argo_domain,omitempty"`
 }
 
+// edgeEligible reports whether a protocol can sit behind an edge reverse
+// proxy: the WebSocket transports (XHTTP needs proxy-side tuning, not offered).
+func edgeEligible(m uiProtoMetaEntry) bool { return m.ArgoEligible && m.HasWS }
+
 // FunnelProto is one row from Step 4. id is the UI-level protocol identifier
 // (matches PROTO_IDS in web/src/lib/protocolMeta.ts). cdn / argoNamed track
 // the per-row accel toggles; both are no-ops for non-CDN-eligible protocols.
@@ -195,7 +201,11 @@ type FunnelProto struct {
 	ID        string `json:"id"`
 	CDN       bool   `json:"cdn"`
 	ArgoNamed bool   `json:"argo_named"`
-	Port      int    `json:"port"`
+	// EdgeBound puts a WebSocket protocol behind the operator's own reverse
+	// proxy on the edge domain (Settings → anti-blocking): plaintext origin on
+	// loopback, clients dial edge_domain:443. Mutually exclusive with Argo/CDN.
+	EdgeBound bool `json:"edge_bound"`
+	Port      int  `json:"port"`
 	// Hy2Obfs enables salamander obfs on this Hysteria2 inbound. Default OFF
 	// (see Hy2Defaults branch comment); advanced users can opt in from the
 	// wizard's protocol card. No effect on non-Hy2 protocols.
@@ -217,6 +227,10 @@ type FunnelResult struct {
 	SubscriptionID    uint            `json:"subscription_id"`
 	SubscriptionToken string          `json:"subscription_token"`
 	SubscriptionURL   string          `json:"subscription_url"`
+	// SubscriptionAbsoluteURL is set when the operator configured a public
+	// subscription origin (sub_base_url): the front-end uses it verbatim
+	// instead of building http://<Host>:<PanelPort>/sub/<token>.
+	SubscriptionAbsoluteURL string `json:"subscription_absolute_url,omitempty"`
 	// Host is the literal IP the operator picked in Step1. The front-end
 	// builds the absolute subscription URL as `http://<Host>:<PanelPort>/sub/<Token>`
 	// so the host segment matches the family the operator chose (window.
@@ -341,6 +355,16 @@ func (w *Wizard) CreateFromFunnel(ctx context.Context, nodeID uint, req FunnelRe
 		}
 	}
 
+	// Edge binding needs the edge domain configured first: the inbound only
+	// listens on loopback, so without a public name it would be unreachable
+	// and silently missing from every subscription.
+	ab := antiblock.Load(w.store)
+	for _, p := range req.Protocols {
+		if meta, ok := uiProtoMeta[p.ID]; ok && edgeEligible(meta) && p.EdgeBound && ab.EdgeDomain == "" {
+			return FunnelResult{}, fmt.Errorf("「经反代域名」需要先在「设置 → 防封」里填好反代域名(Cloudflare 橙云), 再回来创建")
+		}
+	}
+
 	// Resolve the domain verdict up front — the unified certificate model
 	// keys everything on it: cert mode (self-signed vs ACME), sni / ws_host
 	// defaults, and the CDN port gate below. effDomain is non-empty only for
@@ -460,7 +484,7 @@ func (w *Wizard) CreateFromFunnel(ctx context.Context, nodeID uint, req FunnelRe
 			// argo-only batch must not trigger ACME issuance (which would
 			// fail with no domain, or waste a Let's Encrypt slot on an
 			// unused cert).
-			if m, ok := uiProtoMeta[p.ID]; ok && m.NeedsCert && !(p.ArgoNamed && m.ArgoEligible) {
+			if m, ok := uiProtoMeta[p.ID]; ok && m.NeedsCert && !(p.ArgoNamed && m.ArgoEligible) && !(p.EdgeBound && edgeEligible(m)) {
 				needsCertInBatch = true
 				break
 			}
@@ -628,8 +652,8 @@ func (w *Wizard) CreateFromFunnel(ctx context.Context, nodeID uint, req FunnelRe
 			// want active-probing resistance can opt in via the inbound
 			// edit page after creation.
 			settings["masquerade_type"] = "string"
-			settings["masquerade_content"] = "<!doctype html><title>EdgeNest</title>\n"
-			settings["masquerade_status_code"] = 200
+			settings["masquerade_content"] = core.NeutralMasquerade
+			settings["masquerade_status_code"] = core.NeutralMasqueradeStatus
 			// Port hopping (opt-in): persist the range so the orchestrator can
 			// emit nat REDIRECT rules and the share encoders the URI range /
 			// server_ports. Only when both ends form a valid ascending range.
@@ -644,7 +668,10 @@ func (w *Wizard) CreateFromFunnel(ctx context.Context, nodeID uint, req FunnelRe
 		// mutually exclusive with the CDN preferred-IP path (which needs a
 		// real TLS origin). The wizard step constrains argo to ws protocols.
 		isArgo := p.ArgoNamed && meta.ArgoEligible
-		if meta.NeedsCert && !isArgo {
+		// Edge binding is the same plaintext-loopback origin as Argo, fronted
+		// by the operator's reverse proxy instead of cloudflared.
+		isEdge := !isArgo && p.EdgeBound && edgeEligible(meta)
+		if meta.NeedsCert && !isArgo && !isEdge {
 			// Unified certificate model: cert mode follows the domain verdict,
 			// not the protocol. Every TLS protocol (Trojan / WS+TLS / XHTTP-TLS
 			// / Hy2 / TUIC / AnyTLS) runs fine on the bootstrap self-signed
@@ -668,8 +695,11 @@ func (w *Wizard) CreateFromFunnel(ctx context.Context, nodeID uint, req FunnelRe
 				result.CertMode = "self-signed"
 			}
 		}
-		if p.CDN && meta.CDNEligible && !isArgo {
+		if p.CDN && meta.CDNEligible && !isArgo && !isEdge {
 			settings["cdn_mode"] = "true"
+		}
+		if isEdge {
+			settings["edge_bound"] = "true"
 		}
 		if isArgo {
 			settings["argo_bound"] = "true"
@@ -694,7 +724,7 @@ func (w *Wizard) CreateFromFunnel(ctx context.Context, nodeID uint, req FunnelRe
 		tag := fmt.Sprintf("%s-%s-%d", meta.Remark, family, port)
 		listen := listenForHost(req.Host)
 		subHost := req.Host
-		if isArgo {
+		if isArgo || isEdge {
 			// Argo pins the inbound to loopback (the cloudflared process is the
 			// only thing that should reach it). The URI host comes from the
 			// Argo tunnel domain via the share resolver, so leave
@@ -789,6 +819,9 @@ func (w *Wizard) CreateFromFunnel(ctx context.Context, nodeID uint, req FunnelRe
 	result.SubscriptionID = sub.ID
 	result.SubscriptionToken = subToken
 	result.SubscriptionURL = "/sub/" + subToken
+	if ab.SubBaseURL != "" {
+		result.SubscriptionAbsoluteURL = ab.SubBaseURL + result.SubscriptionURL
+	}
 
 	// Persist the Reality keypair public for quick lookup by the panel UI.
 	if pub != "" {

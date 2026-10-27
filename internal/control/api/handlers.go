@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -22,7 +23,16 @@ var Version = "dev"
 // the binary they're talking to matches the release they intended to deploy,
 // plus the cached latest release tag (when update checking is on and a newer
 // version exists) so the About page can surface an upgrade hint.
+//
+// The version block is only for the logged-in panel and for on-box scripts
+// (install.sh / upgrade.sh poll it over loopback). An anonymous remote probe
+// gets a bare "ok": a product name + version string answering every scanner
+// is exactly the kind of fingerprint that gets a proxy IP listed.
 func (h *Handler) Health(c *gin.Context) {
+	if !h.bearerValid(c) && !directLoopback(c) {
+		core.OK(c, gin.H{"status": "ok"})
+		return
+	}
 	latest, updateAvailable := updatecheck.Status(h.store, Version)
 	core.OK(c, gin.H{
 		"status":           "ok",
@@ -217,4 +227,29 @@ func (h *Handler) RestartEngine(c *gin.Context) {
 		return
 	}
 	core.OK(c, gin.H{"ok": true})
+}
+
+// bearerValid reports whether the request carries a valid panel session,
+// without failing it the way AuthMiddleware does.
+func (h *Handler) bearerValid(c *gin.Context) bool {
+	hdr := c.GetHeader("Authorization")
+	if !strings.HasPrefix(hdr, "Bearer ") {
+		return false
+	}
+	_, err := auth.ParseToken(h.jwtSecret, strings.TrimPrefix(hdr, "Bearer "))
+	return err == nil
+}
+
+// directLoopback reports a request made on the box itself, not one relayed
+// by a local reverse proxy (which would also arrive from 127.0.0.1).
+func directLoopback(c *gin.Context) bool {
+	if c.GetHeader("X-Forwarded-For") != "" || c.GetHeader("X-Real-Ip") != "" || c.GetHeader("Cf-Connecting-Ip") != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

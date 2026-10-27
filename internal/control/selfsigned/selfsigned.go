@@ -137,3 +137,21 @@ func exists(certPath, keyPath string) bool {
 	}
 	return true
 }
+
+// Names returns the subject CN and SAN DNS names of the PEM certificate at
+// certPath, or nil when it can't be read.
+func Names(certPath string) []string {
+	raw, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		return nil
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil
+	}
+	return append([]string{cert.Subject.CommonName}, cert.DNSNames...)
+}

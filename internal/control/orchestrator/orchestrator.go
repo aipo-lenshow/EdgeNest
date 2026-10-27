@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/auth"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
@@ -67,6 +68,9 @@ func (o *Orchestrator) BuildDesired(nodeID uint) (core.DesiredConfig, error) {
 	if err != nil {
 		return cfg, fmt.Errorf("list inbounds: %w", err)
 	}
+	// Low-profile mode: directly-exposed inbounds stop listening (and lose
+	// their firewall openings below) until the operator switches it off.
+	inbounds = o.runningInbounds(inbounds)
 	for _, ib := range inbounds {
 		if !ib.Enabled {
 			continue
@@ -228,6 +232,7 @@ func (o *Orchestrator) Apply(ctx context.Context, nodeID uint) (core.ApplyResult
 			res.Message = res.Message + " (firewall sync warning: " + lerr.Error() + ")"
 			return res, nil
 		}
+		inbounds = o.runningInbounds(inbounds)
 		managed, _ := o.computeAllowPorts(nodeID, inbounds)
 		if err := o.syncManagedFirewallLocked(nodeID, managed); err != nil {
 			// Don't fail the apply over a bookkeeping miss — log via Message.
@@ -328,7 +333,9 @@ func buildInboundSpec(ib model.Inbound) (core.InboundSpec, error) {
 	// exposing the port publicly would defeat the whole point of routing
 	// through Cloudflare. Override regardless of the user-set Listen because
 	// argo_bound=true is the stronger statement of intent.
-	if asBool(settings["argo_bound"]) {
+	// edge_bound is the same contract with the operator's own reverse proxy
+	// (Caddy / Nginx) in cloudflared's place.
+	if asBool(settings["argo_bound"]) || asBool(settings["edge_bound"]) {
 		listen = "127.0.0.1"
 	}
 	return core.InboundSpec{
@@ -347,6 +354,25 @@ func buildInboundSpec(ib model.Inbound) (core.InboundSpec, error) {
 		// sb.json with NO family pinning at all (cf. debug).
 		SubscriptionHost: ib.SubscriptionHost,
 	}, nil
+}
+
+// runningInbounds drops the inbounds low-profile mode keeps off the wire.
+func (o *Orchestrator) runningInbounds(inbounds []model.Inbound) []model.Inbound {
+	ab := antiblock.Load(o.store)
+	if !ab.Stealth {
+		return inbounds
+	}
+	out := inbounds[:0:0]
+	for _, ib := range inbounds {
+		var settings map[string]any
+		if ib.Settings != "" {
+			_ = json.Unmarshal([]byte(ib.Settings), &settings)
+		}
+		if ab.Runs(settings) {
+			out = append(out, ib)
+		}
+	}
+	return out
 }
 
 // asBool normalises the settings map's mixed bool/string boolean shape so
@@ -394,6 +420,15 @@ func deriveAllowPorts(inbounds []model.Inbound) []core.PortRule {
 		// normal VMess-WS that happens to use 2053 on a public IP is still
 		// emitted and still needs opening.
 		if isLoopbackListen(ib.Listen) {
+			continue
+		}
+		// Edge / Argo origins are forced onto loopback at render time even if
+		// the stored listen says otherwise, so they never need an opening.
+		var settings map[string]any
+		if ib.Settings != "" {
+			_ = json.Unmarshal([]byte(ib.Settings), &settings)
+		}
+		if antiblock.Shielded(settings) {
 			continue
 		}
 		proto := normaliseProto(ib.Type, ib.Network)

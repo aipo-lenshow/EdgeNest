@@ -26,6 +26,7 @@ import {
 } from "../components/ui";
 import { api, call, clearToken } from "../api/client";
 import CopyButton from "../components/CopyButton";
+import AntiBlockCard from "../components/AntiBlockCard";
 import { setLang, currentLang, SUPPORTED_LANGS, LANG_NAMES, type Lang } from "../i18n/i18n";
 import { readStoredTheme, setTheme, type Theme } from "../lib/theme";
 import { setTzCache, listTimezones, tzLabel } from "../lib/datetime";
@@ -58,12 +59,13 @@ function useFlash() {
   };
 }
 
-type TabKey = "general" | "account" | "notify" | "privacy" | "backup";
+type TabKey = "general" | "account" | "notify" | "antiblock" | "privacy" | "backup";
 
 const TABS: { key: TabKey; labelKey: string }[] = [
   { key: "general", labelKey: "settings.tabGeneral" },
   { key: "account", labelKey: "settings.tabAccount" },
   { key: "notify", labelKey: "settings.tabNotify" },
+  { key: "antiblock", labelKey: "settings.tabAntiblock" },
   { key: "privacy", labelKey: "settings.tabPrivacy" },
   { key: "backup", labelKey: "settings.tabBackup" },
 ];
@@ -129,6 +131,7 @@ export default function SettingsPage() {
             </>
           )}
           {active === "notify" && <NotifyCard data={settings.data} onSaved={invalidate} />}
+          {active === "antiblock" && <AntiBlockCard />}
           {active === "privacy" && <LogPrivacyCard />}
           {active === "backup" && <BackupCard />}
         </div>

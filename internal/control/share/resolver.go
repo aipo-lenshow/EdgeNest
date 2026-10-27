@@ -3,8 +3,10 @@ package share
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"time"
 
+	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 	"github.com/aipo-lenshow/EdgeNest/internal/core"
@@ -22,6 +24,7 @@ type Resolver struct {
 	cdnPool    []string            // optional Cloudflare anycast IPs; used by CDN-mode inbounds
 	argoHost   string              // running Argo tunnel hostname (temp or named); empty = no tunnel
 	capability core.NodeCapability // node IP family detection from install.sh
+	antiblock  antiblock.Config    // edge/direct names + low-profile switch; zero = historical behaviour
 }
 
 // Bundle is the resolved (inbound, client) pair for one row of a subscription.
@@ -52,6 +55,14 @@ type Bundle struct {
 // shareHost.
 func NewResolver(s *store.Store, shareHost string, cdnPool []string, argoHost string, capability core.NodeCapability) *Resolver {
 	return &Resolver{store: s, host: shareHost, cdnPool: cdnPool, argoHost: argoHost, capability: capability}
+}
+
+// WithAntiBlock applies the node's anti-blocking posture: edge_bound inbounds
+// resolve to the edge domain, direct inbounds to the DNS-only names instead of
+// raw IPs, and in low-profile mode only shielded inbounds are emitted.
+func (r *Resolver) WithAntiBlock(c antiblock.Config) *Resolver {
+	r.antiblock = c
+	return r
 }
 
 // CDNPool returns the Cloudflare anycast IPs configured for CDN-mode
@@ -113,7 +124,7 @@ func (r *Resolver) Resolve(token string) ([]string, error) {
 		if !inboundAllowed(in, allowedInboundIDs, allowedInboundTags) {
 			continue
 		}
-		if r.argoUnavailable(in) {
+		if r.skip(in) {
 			continue
 		}
 		// BuildURIForClient with a fresh local copy of the client.
@@ -131,12 +142,35 @@ func (r *Resolver) Resolve(token string) ([]string, error) {
 	return uris, nil
 }
 
+// skip reports whether an enabled inbound must be left out of every client
+// view: an Argo inbound with no running tunnel, an edge inbound with no edge
+// domain configured (it only listens on loopback), or any directly-exposed
+// inbound while low-profile mode is on (the engine isn't serving it).
+func (r *Resolver) skip(in *model.Inbound) bool {
+	if r.argoUnavailable(in) {
+		return true
+	}
+	s := decodeSettings(in)
+	if truthyBool(s["edge_bound"]) && r.antiblock.EdgeDomain == "" {
+		return true
+	}
+	return !r.antiblock.Runs(s)
+}
+
+func decodeSettings(in *model.Inbound) map[string]any {
+	var s map[string]any
+	if in.Settings != "" {
+		_ = json.Unmarshal([]byte(in.Settings), &s)
+	}
+	return s
+}
+
 // argoUnavailable reports whether in is an Argo-bound inbound whose tunnel is
 // not currently running. Such an inbound listens on 127.0.0.1 only (cloudflared
 // is its sole origin client), so emitting it into a subscription would hand out
 // a dead VPS:loopback-port link. We omit it until the tunnel is up; the panel
 // surfaces a "start the tunnel" badge so the operator knows why it's missing.
-// Once argoHost is set, argoEncodingInbound rewrites it to the tunnel edge view
+// Once argoHost is set, edgeEncodingInbound rewrites it to the tunnel edge view
 // and it belongs in the subscription again.
 func (r *Resolver) argoUnavailable(in *model.Inbound) bool {
 	if r.argoHost != "" {
@@ -163,8 +197,19 @@ func (r *Resolver) effectiveHost(in *model.Inbound, c model.Client) string {
 	if r.argoHost != "" && truthyBool(settings["argo_bound"]) && isCDNCompatibleType(in.Type) {
 		return r.argoHost
 	}
+	// Edge reverse proxy: the client dials the Cloudflare-proxied name, the
+	// operator's Caddy/Nginx forwards the WebSocket path to loopback.
+	if r.antiblock.EdgeDomain != "" && truthyBool(settings["edge_bound"]) && isCDNCompatibleType(in.Type) {
+		return r.antiblock.EdgeDomain
+	}
 	if pick := PickCDNHost(in, c, settings, r.cdnPool); pick != "" {
 		return pick
+	}
+	// DNS-only names replace raw IPs so moving the VPS to a new address is a
+	// DNS edit, not a re-import on every client. The family of the address the
+	// inbound was bound to picks the v4 or v6 name.
+	if name := r.directName(in); name != "" {
+		return name
 	}
 	// Per-inbound subscription host: the literal IP the wizard's HostChooser
 	// picked from the v4 or v6 list. Set per inbound so a dual-stack node
@@ -178,23 +223,44 @@ func (r *Resolver) effectiveHost(in *model.Inbound, c model.Client) string {
 	return r.host
 }
 
+// directName is the DNS-only name for a directly-exposed inbound, or "" when
+// the operator hasn't configured one for its address family.
+func (r *Resolver) directName(in *model.Inbound) string {
+	addr := in.SubscriptionHost
+	if addr == "" {
+		addr = r.host
+	}
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return "" // already a name (share_host FQDN) — leave it
+	}
+	if ip.To4() == nil {
+		return r.antiblock.DirectDomainV6
+	}
+	return r.antiblock.DirectDomain
+}
+
 // encodingView returns the (inbound, host) pair the format encoders should
 // render for this (inbound, client). For most inbounds it's the inbound
-// verbatim plus effectiveHost. For an Argo-bound inbound it returns a
+// verbatim plus effectiveHost. For an Argo- or edge-bound inbound it returns a
 // throwaway copy rewritten for the Cloudflare-edge view (see
-// argoEncodingInbound). Both Resolve (URI list) and ResolveBundles (native
+// edgeEncodingInbound). Both Resolve (URI list) and ResolveBundles (native
 // formats) funnel through here so every output channel agrees.
 func (r *Resolver) encodingView(in *model.Inbound, c model.Client) (*model.Inbound, string) {
 	host := r.effectiveHost(in, c)
 	if r.argoHost != "" && host == r.argoHost {
-		return r.argoEncodingInbound(in), host
+		return edgeEncodingInbound(in, host), host
+	}
+	if r.antiblock.EdgeDomain != "" && host == r.antiblock.EdgeDomain {
+		return edgeEncodingInbound(in, host), host
 	}
 	return in, host
 }
 
-// argoEncodingInbound returns a copy of in rewritten so the share encoders
-// emit a client config that reaches the Cloudflare Tunnel edge — NOT the
-// loopback plaintext origin the engine actually serves.
+// edgeEncodingInbound returns a copy of in rewritten so the share encoders
+// emit a client config that reaches the Cloudflare edge (an Argo tunnel or the
+// operator's own reverse proxy behind a proxied domain) — NOT the loopback
+// plaintext origin the engine actually serves.
 //
 // The origin inbound is plaintext WebSocket on 127.0.0.1 (cloudflared speaks
 // plain HTTP to it). The client, however, must dial the tunnel hostname over
@@ -212,7 +278,7 @@ func (r *Resolver) encodingView(in *model.Inbound, c model.Client) (*model.Inbou
 // The sentinel cert path is never dereferenced by the encoders (they only
 // test it for non-emptiness) and never reaches the engine renderer, which
 // runs against the real inbound.
-func (r *Resolver) argoEncodingInbound(in *model.Inbound) *model.Inbound {
+func edgeEncodingInbound(in *model.Inbound, host string) *model.Inbound {
 	var s map[string]any
 	if in.Settings != "" {
 		_ = json.Unmarshal([]byte(in.Settings), &s)
@@ -223,8 +289,8 @@ func (r *Resolver) argoEncodingInbound(in *model.Inbound) *model.Inbound {
 	s["tls_cert_path"] = "argo-edge"
 	s["acme_managed"] = "true"
 	delete(s, "self_signed")
-	s["sni"] = r.argoHost
-	s["ws_host"] = r.argoHost
+	s["sni"] = host
+	s["ws_host"] = host
 	b, _ := json.Marshal(s)
 	cp := *in
 	cp.Settings = string(b)
@@ -275,7 +341,7 @@ func (r *Resolver) ResolveBundles(token string) ([]Bundle, error) {
 		if !inboundAllowed(in, allowedInboundIDs, allowedInboundTags) {
 			continue
 		}
-		if r.argoUnavailable(in) {
+		if r.skip(in) {
 			continue
 		}
 		client := c
@@ -337,7 +403,7 @@ func (r *Resolver) BuildBundleForClient(c *model.Client) ([]ShareLink, error) {
 		if !in.Enabled {
 			continue
 		}
-		if r.argoUnavailable(in) {
+		if r.skip(in) {
 			continue
 		}
 		client := sc
@@ -351,7 +417,8 @@ func (r *Resolver) BuildBundleForClient(c *model.Client) ([]ShareLink, error) {
 			_ = json.Unmarshal([]byte(in.Settings), &settings)
 		}
 		isArgo := r.argoHost != "" && truthyBool(settings["argo_bound"]) && isCDNCompatibleType(in.Type)
-		isCDN := !isArgo && PickCDNHost(in, client, settings, r.cdnPool) != ""
+		isEdge := !isArgo && r.antiblock.EdgeDomain != "" && truthyBool(settings["edge_bound"]) && isCDNCompatibleType(in.Type)
+		isCDN := isEdge || (!isArgo && PickCDNHost(in, client, settings, r.cdnPool) != "")
 		links = append(links, ShareLink{
 			URI:        uri,
 			ServerHost: r.realServerHost(in),

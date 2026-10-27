@@ -24,6 +24,7 @@ import AccelStatusNote from "../components/AccelStatusNote";
 import { SUB_FORMATS, subUrlForFmt, type SubFormat } from "../lib/subscription";
 import { copyText } from "../lib/clipboard";
 import CopyButton from "../components/CopyButton";
+import { useAntiBlock } from "../components/AntiBlockCard";
 import {
   CLIENT_IDS,
   COMPAT_MATRIX,
@@ -49,6 +50,10 @@ interface ProtoSelection {
   argoNamed: boolean;
   argoTemp: boolean;
   argoToken: string;
+  // WebSocket-only: serve this protocol behind the operator's reverse proxy on
+  // the anti-blocking edge domain (Settings → Anti-blocking). Exclusive with
+  // CDN preferred IPs and Argo.
+  edgeBound: boolean;
   // Hy2-only: turn salamander obfs on (default OFF). When toggled on the
   // wizard shows a red warning that Stash / Surge / Karing will drop the
   // node. Non-Hy2 protocols ignore this field.
@@ -75,6 +80,9 @@ interface FunnelResult {
   subscription_id: number;
   subscription_token: string;
   subscription_url: string;
+  // Set when Settings → Anti-blocking has a public subscription origin; used
+  // verbatim instead of the IP:panel-port URL.
+  subscription_absolute_url?: string;
   host: string; // literal IP operator picked in Step1
   domain_status: DomainStatus;
   cert_mode?: string; // "none" | "self-signed" | "acme"
@@ -107,12 +115,16 @@ interface SystemInfo {
 // host both point at the operator-chosen address.
 
 type Mode = "quick" | "scenario" | "full";
-const QUICK_PROTOS: ProtoId[] = [
-  "vless-reality",
-  "hysteria2",
-  "shadowsocks-2022",
-  "socks5",
-];
+// Shadowsocks-2022 and SOCKS5 left the quick set: fully-encrypted traffic and
+// a plaintext proxy on a public IP are the two easiest things for a censor to
+// flag, and either one gets the whole IP blocked. Both stay one click away in
+// the full wizard.
+const QUICK_PROTOS: ProtoId[] = ["vless-reality", "hysteria2"];
+
+// EDGE_PROTOS can sit behind the anti-blocking edge domain (plain WebSocket).
+// Once an edge domain is configured the quick set gains VLESS-WS on it, the
+// node that keeps working when the IP itself is blocked.
+const EDGE_PROTOS: ProtoId[] = ["vless-ws-cdn", "vmess-ws-cdn"];
 
 // XHTTP is the only transport the bundled sing-box can't serve — it needs the
 // optional xray-core engine. requiresXray flags those protocols so the wizard
@@ -199,6 +211,7 @@ function newSelection(id: ProtoId, defaultsByID: Record<ProtoId, number>): Proto
     argoNamed: false,
     argoTemp: false,
     argoToken: "",
+    edgeBound: false,
     hy2Obfs: false,
     hy2HopStart: 0,
     hy2HopEnd: 0,
@@ -615,9 +628,16 @@ function QuickFlow({
   // pick from. This also fixes the stealth-max case where the seeded
   // vless-xhttp-reality wasn't in QUICK_PROTOS, so it counted as "1 selected"
   // with no visible row.
+  const antiblock = useAntiBlock();
+  const edgeDomain = antiblock.data?.edge_domain ?? "";
   const displayProtos = useMemo<ProtoId[]>(
-    () => (seedProtos && seedProtos.length > 0 ? seedProtos : QUICK_PROTOS),
-    [seedProtos],
+    () =>
+      seedProtos && seedProtos.length > 0
+        ? seedProtos
+        : edgeDomain
+          ? [...QUICK_PROTOS, "vless-ws-cdn"]
+          : QUICK_PROTOS,
+    [seedProtos, edgeDomain],
   );
   // When entered via 场景 mode, pre-check the scenario's protocol list so the
   // operator lands on the Quick grid with the right boxes already ticked.
@@ -657,6 +677,7 @@ function QuickFlow({
             id: s.id,
             cdn: false,
             argo_named: false,
+            edge_bound: !!edgeDomain && EDGE_PROTOS.includes(s.id),
             port: s.port || 0,
             hy2_obfs: s.hy2Obfs,
             hy2_port_hop_start: s.hy2HopStart || 0,
@@ -776,6 +797,11 @@ function QuickFlow({
                   </div>
                   {locked && <XrayLockedHint t={t} />}
                   {id === "socks5" && <SocksPlaintextHint t={t} />}
+                  {edgeDomain && EDGE_PROTOS.includes(id) && (
+                    <div className="text-[11px] text-emerald-600 dark:text-emerald-300 mt-1">
+                      {t("createInbound.edgeQuickHint", { domain: edgeDomain })}
+                    </div>
+                  )}
                 </div>
               </label>
               {sel && (
@@ -927,6 +953,7 @@ function FullFlow({
             id: s.id,
             cdn: s.cdn,
             argo_named: s.argoNamed || s.argoTemp,
+            edge_bound: s.edgeBound,
             port: s.port || 0,
             hy2_obfs: s.hy2Obfs,
             hy2_port_hop_start: s.hy2HopStart || 0,
@@ -1384,6 +1411,9 @@ function Step3Protocols({
   // the id that currently has Argo on (temp or named), if any — every other
   // protocol's Argo radios get locked with a pointer to it. existingArgoTag
   // (an Argo inbound already on the node) locks ALL of them.
+  const antiblock = useAntiBlock();
+  const edgeDomain = antiblock.data?.edge_domain ?? "";
+
   const argoSelectedBy = Array.from(selections.entries()).find(
     ([, s]) => s.argoTemp || s.argoNamed,
   )?.[0];
@@ -1581,12 +1611,38 @@ function Step3Protocols({
                             <input
                               type="radio"
                               name={`argo-${id}`}
-                              checked={!sel.argoNamed && !sel.argoTemp}
-                              onChange={() => patch(id, { argoNamed: false, argoTemp: false })}
+                              checked={!sel.argoNamed && !sel.argoTemp && !sel.edgeBound}
+                              onChange={() => patch(id, { argoNamed: false, argoTemp: false, edgeBound: false })}
                               className="mt-0.5"
                             />
                             <span>{t("createInbound.argoNone")}</span>
                           </label>
+                          {EDGE_PROTOS.includes(id) && (
+                            <label
+                              className={`flex items-start gap-2 mb-1 ${
+                                edgeDomain ? "cursor-pointer" : "opacity-50 cursor-not-allowed"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name={`argo-${id}`}
+                                checked={sel.edgeBound}
+                                disabled={!edgeDomain}
+                                onChange={() =>
+                                  patch(id, { edgeBound: true, argoNamed: false, argoTemp: false, cdn: false })
+                                }
+                                className="mt-0.5"
+                              />
+                              <div>
+                                <div className="font-medium">
+                                  {t("createInbound.edgeOption", { domain: edgeDomain || "—" })}
+                                </div>
+                                <div className="text-black/50 dark:text-white/50">
+                                  {edgeDomain ? t("createInbound.edgeOptionHint") : t("createInbound.edgeOptionNeedsDomain")}
+                                </div>
+                              </div>
+                            </label>
+                          )}
                           <label
                             className={`flex items-start gap-2 mb-1 ${
                               argoLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
@@ -1597,7 +1653,7 @@ function Step3Protocols({
                               name={`argo-${id}`}
                               checked={sel.argoTemp}
                               disabled={argoLocked}
-                              onChange={() => patch(id, { argoTemp: true, argoNamed: false })}
+                              onChange={() => patch(id, { argoTemp: true, argoNamed: false, edgeBound: false })}
                               className="mt-0.5"
                             />
                             <div>
@@ -1617,7 +1673,7 @@ function Step3Protocols({
                               name={`argo-${id}`}
                               checked={sel.argoNamed}
                               disabled={argoLocked}
-                              onChange={() => patch(id, { argoNamed: true, argoTemp: false })}
+                              onChange={() => patch(id, { argoNamed: true, argoTemp: false, edgeBound: false })}
                               className="mt-0.5"
                             />
                             <div className="flex-1">
@@ -1815,13 +1871,14 @@ function ResultPanel({
   // wrong when the operator picked a different family from the one they
   // logged into the panel with.
   const subscriptionBase = useMemo(() => {
+    if (result.subscription_absolute_url) return result.subscription_absolute_url;
     if (result.host && panelPort > 0) {
       const isV6 = result.host.includes(":");
       const hostSeg = isV6 ? `[${result.host}]` : result.host;
       return `http://${hostSeg}:${panelPort}${result.subscription_url}`;
     }
     return result.subscription_url;
-  }, [result.host, result.subscription_url, panelPort]);
+  }, [result.host, result.subscription_url, result.subscription_absolute_url, panelPort]);
   const fullUrl = subUrlForFmt(subscriptionBase, fmt);
   // The nc one-liners in the port-verify checklist must target the SAME IP
   // the operator picked in Step 1 — that's the IP the wizard actually bound

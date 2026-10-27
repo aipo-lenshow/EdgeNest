@@ -44,13 +44,13 @@ var advancedFieldsByType = map[string][]string{
 		"cdn_mode", "argo_bound",
 	},
 	"vless-ws": {
-		"ws_path", "ws_host", "cdn_mode", "argo_bound",
+		"ws_path", "ws_host", "cdn_mode", "argo_bound", "edge_bound",
 	},
 	"vmess": {
-		"ws_path", "ws_host", "cdn_mode", "argo_bound",
+		"ws_path", "ws_host", "cdn_mode", "argo_bound", "edge_bound",
 	},
 	"vmess-ws": {
-		"ws_path", "ws_host", "cdn_mode", "argo_bound",
+		"ws_path", "ws_host", "cdn_mode", "argo_bound", "edge_bound",
 	},
 	"hysteria2": {
 		// obfs is a boolean toggle at the UI layer; autofill turns it into

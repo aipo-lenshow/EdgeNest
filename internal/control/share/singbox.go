@@ -86,8 +86,16 @@ func EncodeSingbox(bundles []Bundle, host string) string {
 		urltestTags = []string{"direct"}
 	}
 
+	// With two or more nodes the selector starts on the url-test group, so a
+	// direct node going dark (IP block, low-profile switch) fails over to the
+	// CDN/edge node without the user touching anything — same as the Clash
+	// encoders, whose select group lists auto first.
+	selDefault := firstNonEmpty(tags, "auto")
+	if len(tags) >= 2 {
+		selDefault = "auto"
+	}
 	outbounds = append(outbounds,
-		outbound{"type": "selector", "tag": "EdgeNest", "outbounds": selectorTags, "default": firstNonEmpty(tags, "auto")},
+		outbound{"type": "selector", "tag": "EdgeNest", "outbounds": selectorTags, "default": selDefault},
 		outbound{"type": "urltest", "tag": "auto", "outbounds": urltestTags, "url": "https://www.gstatic.com/generate_204", "interval": "5m"},
 		outbound{"type": "direct", "tag": "direct"},
 	)

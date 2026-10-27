@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/auth"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/share"
@@ -299,9 +300,10 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 	}
 	lookup := h.buildInboundLookup()
 	fallback := h.shareHost()
+	base := antiblock.Load(h.store).SubBaseURL
 	views := make([]gin.H, 0, len(subs))
 	for i := range subs {
-		v := subscriptionView(&subs[i], lookup, h.panelPort, fallback)
+		v := withSubBase(subscriptionView(&subs[i], lookup, h.panelPort, fallback), &subs[i], base)
 		views = append(views, h.withClientState(v, subs[i].ClientID))
 	}
 	core.OK(c, views)
@@ -339,9 +341,20 @@ func (h *Handler) GetSubscription(c *gin.Context) {
 		return
 	}
 	core.OK(c, h.withClientState(
-		subscriptionView(sub, h.buildInboundLookup(), h.panelPort, h.shareHost()),
+		withSubBase(subscriptionView(sub, h.buildInboundLookup(), h.panelPort, h.shareHost()),
+			sub, antiblock.Load(h.store).SubBaseURL),
 		sub.ClientID,
 	))
+}
+
+// withSubBase swaps the IP:panel-port absolute URL for the operator's public
+// subscription origin (Settings → anti-blocking) when one is configured, so
+// the link handed to users survives an IP change and never shows the VPS IP.
+func withSubBase(view gin.H, sub *model.Subscription, base string) gin.H {
+	if base != "" && sub.Token != "" {
+		view["absolute_url"] = base + "/sub/" + sub.Token
+	}
+	return view
 }
 
 // RotateSubscription generates a new token for an existing subscription. The
@@ -433,7 +446,8 @@ func (h *Handler) PublicSubscription(c *gin.Context) {
 		})
 		return
 	}
-	resolver := share.NewResolver(h.store, host, h.cdnPoolForLocalNode(), h.argoHost(), core.ReadNodeCapability(core.DefaultCapabilityPath))
+	resolver := share.NewResolver(h.store, host, h.cdnPoolForLocalNode(), h.argoHost(), core.ReadNodeCapability(core.DefaultCapabilityPath)).
+		WithAntiBlock(antiblock.Load(h.store))
 
 	format := pickSubFormat(c.Query("fmt"), c.GetHeader("User-Agent"))
 
@@ -497,7 +511,15 @@ func (h *Handler) PublicSubscription(c *gin.Context) {
 	}
 
 	c.Header("Subscription-Userinfo", "upload=0; download=0; total=0; expire=0")
-	c.Header("Profile-Update-Interval", "24")
+	// 6 h so a client picks up a moved node (new IP / low-profile switch)
+	// within a working day; the body is small and served from loopback.
+	c.Header("Profile-Update-Interval", "6")
+	// Signed list of mirror origins: EdgeNest clients fall back to them when
+	// the primary subscription host is unreachable. Third-party clients
+	// ignore the header. A signing failure only drops the header.
+	if mh, err := antiblock.MirrorsHeader(h.store); err == nil && mh != "" {
+		c.Header("X-EdgeNest-Mirrors", mh)
+	}
 	c.Header("Cache-Control", "no-store, max-age=0")
 	c.Data(http.StatusOK, contentType, []byte(body))
 }
@@ -591,7 +613,8 @@ func (h *Handler) PreviewClientBundle(c *gin.Context) {
 			"share_host setting is empty")
 		return
 	}
-	resolver := share.NewResolver(h.store, host, h.cdnPoolForLocalNode(), h.argoHost(), core.ReadNodeCapability(core.DefaultCapabilityPath))
+	resolver := share.NewResolver(h.store, host, h.cdnPoolForLocalNode(), h.argoHost(), core.ReadNodeCapability(core.DefaultCapabilityPath)).
+		WithAntiBlock(antiblock.Load(h.store))
 	links, err := resolver.BuildBundleForClient(client)
 	if err != nil {
 		core.Fail(c, http.StatusInternalServerError, "RESOLVE_FAILED", err.Error())

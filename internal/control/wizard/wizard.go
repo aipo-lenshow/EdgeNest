@@ -259,8 +259,8 @@ func (w *Wizard) Complete(ctx context.Context, nodeID uint, req CompleteRequest)
 		"up_mbps":                req.Hysteria2UpMbps,
 		"down_mbps":              req.Hysteria2DownMbps,
 		"masquerade_type":        "string",
-		"masquerade_content":     "<!doctype html><title>EdgeNest</title>\n",
-		"masquerade_status_code": 200,
+		"masquerade_content":     core.NeutralMasquerade,
+		"masquerade_status_code": core.NeutralMasqueradeStatus,
 	})
 	h2In := &model.Inbound{
 		NodeID: nodeID, Tag: fmt.Sprintf("EdgeNest-Hysteria2-%d", req.Hysteria2Port), Engine: "singbox", Type: "hysteria2",

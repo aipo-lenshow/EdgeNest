@@ -122,6 +122,8 @@ func (h *Handler) NewRouter() *gin.Engine {
 		// Panel-editable settings (host, panel_path, notify)
 		authed.GET("/settings", h.ListSettings)
 		authed.PUT("/settings/host", h.UpdateHost)
+		authed.GET("/antiblock", h.GetAntiBlock)
+		authed.PUT("/antiblock", h.PutAntiBlock)
 		authed.PUT("/settings/panel-path", h.UpdatePanelPath)
 		authed.PUT("/settings/timezone", h.UpdateTimezone)
 		authed.PUT("/settings/language", h.UpdateLanguage)

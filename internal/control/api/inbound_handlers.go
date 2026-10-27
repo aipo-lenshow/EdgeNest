@@ -80,6 +80,34 @@ func argoBindGate(typ, listen string, settings map[string]any) string {
 	return ""
 }
 
+// edgeWSTypes are the protocols an edge reverse proxy can front: plain
+// WebSocket survives Cloudflare + Caddy/Nginx with no transport-specific
+// configuration on the proxy side.
+var edgeWSTypes = map[string]bool{"vmess": true, "vmess-ws": true, "vless-ws": true}
+
+// edgeBindGate is argoBindGate for edge_bound inbounds: the operator's reverse
+// proxy terminates TLS and forwards the WebSocket path to a plaintext origin
+// on loopback, so the same three conditions hold. An edge inbound also cannot
+// be Argo-bound or use the CDN preferred-IP pool at the same time.
+func edgeBindGate(typ, listen string, settings map[string]any) string {
+	if !settingTruthy(settings["edge_bound"]) {
+		return ""
+	}
+	if !edgeWSTypes[typ] {
+		return "反代接入仅支持 WebSocket 协议(VMess-WS / VLESS-WS)。请用向导的「接入优化 → 经反代域名」创建专用入站。"
+	}
+	if settingTruthy(settings["argo_bound"]) || settingTruthy(settings["cdn_mode"]) {
+		return "反代接入不能同时开启 Argo 或 CDN 优选 IP, 三者只能选一种。"
+	}
+	if cert, _ := settings["tls_cert_path"].(string); cert != "" {
+		return "反代接入要求入站为明文 WebSocket(TLS 由反代和 Cloudflare 提供), 当前入站带证书。请用向导的「接入优化 → 经反代域名」创建专用明文入站。"
+	}
+	if !isLoopbackListen(listen) {
+		return "反代接入要求入站只监听 127.0.0.1(仅本机反代可达), 当前监听公网地址。请用向导的「接入优化 → 经反代域名」创建专用入站。"
+	}
+	return ""
+}
+
 // argoSingletonGate enforces the one-Argo-inbound-per-node constraint (1a): a
 // node runs a single cloudflared tunnel pointing at a single loopback port, so
 // only one argo_bound inbound can ever carry traffic. settings is the candidate
@@ -171,6 +199,10 @@ func (h *Handler) CreateInbound(c *gin.Context) {
 	}
 	if msg := argoBindGate(req.Type, req.Listen, filled); msg != "" {
 		core.Fail(c, http.StatusBadRequest, "ARGO_BIND", msg)
+		return
+	}
+	if msg := edgeBindGate(req.Type, req.Listen, filled); msg != "" {
+		core.Fail(c, http.StatusBadRequest, "EDGE_BIND", msg)
 		return
 	}
 	if msg := h.argoSingletonGate(h.parseLocalNodeID(), filled, 0); msg != "" {
@@ -353,6 +385,10 @@ func (h *Handler) UpdateInbound(c *gin.Context) {
 			core.Fail(c, http.StatusBadRequest, "ARGO_BIND", msg)
 			return
 		}
+		if msg := edgeBindGate(in.Type, in.Listen, existing); msg != "" {
+			core.Fail(c, http.StatusBadRequest, "EDGE_BIND", msg)
+			return
+		}
 	}
 	if req.Advanced != nil || req.Settings != nil {
 		var existing map[string]any
@@ -378,6 +414,10 @@ func (h *Handler) UpdateInbound(c *gin.Context) {
 		}
 		if msg := argoBindGate(in.Type, in.Listen, filled); msg != "" {
 			core.Fail(c, http.StatusBadRequest, "ARGO_BIND", msg)
+			return
+		}
+		if msg := edgeBindGate(in.Type, in.Listen, filled); msg != "" {
+			core.Fail(c, http.StatusBadRequest, "EDGE_BIND", msg)
 			return
 		}
 		if msg := h.argoSingletonGate(in.NodeID, filled, in.ID); msg != "" {

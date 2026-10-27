@@ -141,6 +141,18 @@ func Ensure(s *store.Store) (Result, error) {
 		return res, err
 	}
 
+	// Privacy by default: a node with no /advanced row yet (fresh install, or
+	// an upgrade where the operator never opened that page) starts with
+	// client-IP redaction on, so users' source addresses never land in the
+	// engine logs unless the operator deliberately turns it off. An existing
+	// row is the operator's choice and is left alone. Only BlockQUIC in that
+	// row changes the rendered config, and it stays off.
+	if adv, err := s.GetAdvanced(node.ID); err == nil && adv == nil {
+		if err := s.UpsertAdvanced(&model.AdvancedConfig{NodeID: node.ID, RedactClientIP: true}); err != nil {
+			log.Printf("bootstrap: default log privacy: %v", err)
+		}
+	}
+
 	// Auto-detect this host's public IPv4 so subscription URIs render against
 	// a reachable address from day one. Without this the operator has to go
 	// to Settings → host and fill it manually, and any subscription created
@@ -188,15 +200,26 @@ func Ensure(s *store.Store) (Result, error) {
 	// wizard flow. Failure is non-fatal — operator can still issue real certs
 	// from the Certs page, and the engine error surfaces in the audit log.
 	//
-	// SAN includes every address the user may reasonably dial: edgenest.local
-	// (loopback), share_host (operator-set domain or IP), and the install-time
-	// v4 / v6 addresses. One cert covers panel HTTPS regardless of which
+	// SAN includes every address the user may reasonably dial: share_host
+	// (operator-set domain or IP) and the install-time v4 / v6 addresses. One cert covers panel HTTPS regardless of which
 	// address resolves on the client side — the directive being "无论用户绑定
 	// 的是什么, 域名访问都应该能正常工作只要解析到的 IP 在 SAN 里".
 	certPath := filepath.Join(defaultCertsDir, defaultWizardCertPN)
 	keyPath := filepath.Join(defaultCertsDir, defaultWizardKeyPN)
 	cap := core.ReadNodeCapability(core.DefaultCapabilityPath)
-	dnsNames := []string{"edgenest.local"}
+	// No product name anywhere in the certificate: every TLS port presents
+	// it to an active prober, so a fixed "edgenest.local" CN marked all of a
+	// node's ports as EdgeNest at once. A pair minted by an older build is
+	// replaced once; clients skip verification of self-signed pairs, so the
+	// swap is invisible to them.
+	for _, n := range selfsigned.Names(certPath) {
+		if n == legacySelfSignedName {
+			_ = os.Remove(certPath)
+			_ = os.Remove(keyPath)
+			break
+		}
+	}
+	dnsNames := []string{}
 	ipAddrs := []string{}
 	if res.Host != "" {
 		if net.ParseIP(res.Host) != nil {
@@ -231,8 +254,10 @@ func Ensure(s *store.Store) (Result, error) {
 	if len(cap.IPv6Addrs) == 0 && cap.IPv6Addr != "" {
 		ipAddrs = append(ipAddrs, cap.IPv6Addr)
 	}
+	if len(dnsNames) == 0 && len(ipAddrs) == 0 {
+		dnsNames = append(dnsNames, "localhost")
+	}
 	if err := selfsigned.WriteMultiSAN(selfsigned.Options{
-		CommonName:  "edgenest.local",
 		DNSNames:    dnsNames,
 		IPAddresses: ipAddrs,
 	}, certPath, keyPath); err != nil {
@@ -245,9 +270,14 @@ func Ensure(s *store.Store) (Result, error) {
 		return res, err
 	}
 	if count == 0 {
-		// Per v0.02 decision: ship a non-default initial username ("EdgeNest")
-		// so default scanners that probe "admin" don't get a free attempt.
-		username := "EdgeNest"
+		// Random initial username: scanners that probe "admin" get nothing,
+		// and unlike the old fixed "EdgeNest" it doesn't name the product to
+		// whoever reaches the login form. install.sh reads it back from the DB.
+		suffix, err := auth.RandomHex(3)
+		if err != nil {
+			return res, err
+		}
+		username := "op" + suffix
 		password, err := auth.RandomHex(8) // 16-char random password
 		if err != nil {
 			return res, err
@@ -394,3 +424,7 @@ func isWildcardHost(h string) bool {
 	}
 	return false
 }
+
+// legacySelfSignedName is the product-named CN older builds put on the
+// bootstrap certificate.
+const legacySelfSignedName = "edgenest.local"
