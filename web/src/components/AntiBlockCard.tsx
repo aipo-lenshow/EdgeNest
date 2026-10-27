@@ -148,7 +148,7 @@ export default function AntiBlockCard() {
               rows={3}
               value={form.mirrors}
               onChange={set("mirrors")}
-              placeholder={"https://sub.another-domain.com\nhttps://xxx.workers.dev"}
+              placeholder={"https://sub.example.net\nhttps://xxx.workers.dev"}
             />
           </Field>
           <div className="flex items-center gap-3">
