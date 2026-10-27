@@ -5,7 +5,7 @@
 > پنل مدیریت نود پروکسی خودمیزبان — دو موتوره، مبتنی بر جادوگر (wizard)، استقرار با یک فرمان.
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-![Version](https://img.shields.io/badge/version-1.31.1027-green.svg)
+![Version](https://img.shields.io/badge/version-1.32.1027-green.svg)
 ![Engine](https://img.shields.io/badge/engine-sing--box%20%2B%20Xray-orange.svg)
 
 EdgeNest به کاربران در محیط‌های شبکه‌ای محدود کمک می‌کند تا به‌طور پایدار به ابزارهای هوش مصنوعی، مستندات فنی و منابع آموزشی دسترسی داشته باشند. یک فرمان، پنل، تحویل اشتراک و موتورهای پروکسی را روی VPS خودتان بالا می‌آورد و مدیریت ورودی‌های چندپروتکلی، سهمیه ترافیک، گواهی‌ها و بهینه‌سازی خروجی را در یک‌جا گرد می‌آورد — همه از طریق رابط گرافیکی و بدون ویرایش دستی فایل‌های پیکربندی.
@@ -87,7 +87,7 @@ sudo bash scripts/install.sh
 آرشیو شامل باینری‌های `edgenest` و `sing-box` است که نصب‌کننده مستقیماً از آن‌ها استفاده می‌کند — هم دانلود و هم کامپایل روی میزبان را رد می‌کند. برای ماشین‌های کم‌حافظه یا توزیع آفلاین مناسب است.
 
 ```bash
-VER=1.31.1027
+VER=1.32.1027
 ARCH=amd64   # روی ماشین‌های ARM64 از arm64 استفاده کنید
 curl -fsSL -O https://github.com/aipo-lenshow/EdgeNest/releases/download/v${VER}/edgenest-${VER}-linux-${ARCH}.tar.gz
 tar -xzf edgenest-${VER}-linux-${ARCH}.tar.gz
@@ -156,7 +156,7 @@ EdgeNest نودها را می‌سازد و پروژه‌های زیر به آن
 | متغیر | پیش‌فرض | کاربرد |
 |---|---|---|
 | `EDGENEST_LANG` | تشخیص از `$LANG` | زبان پنل و نصب‌کننده (`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`) |
-| `EDGENEST_VERSION` | `1.31.1027` | نسخه‌ای که برای دانلود نسخه از پیش ساخته‌شده استفاده می‌شود |
+| `EDGENEST_VERSION` | `1.32.1027` | نسخه‌ای که برای دانلود نسخه از پیش ساخته‌شده استفاده می‌شود |
 | `EDGENEST_RELEASE_BASE` | پایه دانلود GitHub Release | آدرس پایه برای نسخه‌های از پیش ساخته‌شده |
 | `SINGBOX_VERSION` | `1.14.4` | نسخه sing-box (همیشه با تگ آمار `with_v2ray_api` ساخته می‌شود) |
 | `XRAY_VERSION` | `26.10.21` | نسخه Xray (اختیاری) |
