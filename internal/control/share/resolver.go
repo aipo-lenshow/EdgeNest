@@ -3,7 +3,9 @@ package share
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
@@ -129,14 +131,15 @@ func (r *Resolver) Resolve(token string) ([]string, error) {
 		}
 		// BuildURIForClient with a fresh local copy of the client.
 		client := c
-		encIn, host := r.encodingView(in, client)
-		uri, err := BuildURIForClient(encIn, &client, host)
-		if err != nil {
-			// One bad inbound shouldn't kill the whole bundle.
-			continue
-		}
-		if uri != "" {
-			uris = append(uris, uri)
+		for _, v := range r.views(in, client) {
+			uri, err := BuildURIForClient(v.in, &client, v.host)
+			if err != nil {
+				// One bad inbound shouldn't kill the whole bundle.
+				continue
+			}
+			if uri != "" {
+				uris = append(uris, uri)
+			}
 		}
 	}
 	return uris, nil
@@ -263,6 +266,48 @@ func (r *Resolver) encodingView(in *model.Inbound, c model.Client) (*model.Inbou
 	return in, host
 }
 
+// maxEdgePoolNodes caps how many preferred-IP copies one edge or Argo inbound
+// fans out to, so a long pool doesn't flood every client's node list.
+const maxEdgePoolNodes = 8
+
+// view is one rendering of an (inbound, client) pair: the inbound the encoders
+// see and the server host they emit.
+type view struct {
+	in   *model.Inbound
+	host string
+}
+
+// views returns every rendering of (in, c). The first is encodingView's. An
+// Argo- or edge-bound inbound additionally gets one copy per CDN preferred-IP
+// pool entry while the pool is on: the copy dials that Cloudflare address but
+// keeps SNI / Host on the tunnel or edge name, and carries a numbered remark so
+// each one is a distinct node. Users on different networks then each end up on
+// whichever edge their client's auto-select finds fastest, instead of all of
+// them sharing the one address the domain happens to resolve to.
+func (r *Resolver) views(in *model.Inbound, c model.Client) []view {
+	encIn, host := r.encodingView(in, c)
+	out := []view{{encIn, host}}
+	if encIn == in || len(r.cdnPool) == 0 {
+		return out
+	}
+	base := remarkOf(in, c)
+	n := 0
+	for _, addr := range r.cdnPool {
+		addr = strings.TrimSpace(addr)
+		if addr == "" || addr == host {
+			continue
+		}
+		if n == maxEdgePoolNodes {
+			break
+		}
+		n++
+		cp := *encIn
+		cp.Remark = fmt.Sprintf("%s-CF%d", base, n)
+		out = append(out, view{&cp, addr})
+	}
+	return out
+}
+
 // edgeEncodingInbound returns a copy of in rewritten so the share encoders
 // emit a client config that reaches the Cloudflare edge (an Argo tunnel or the
 // operator's own reverse proxy behind a proxied domain) — NOT the loopback
@@ -351,12 +396,13 @@ func (r *Resolver) ResolveBundles(token string) ([]Bundle, error) {
 			continue
 		}
 		client := c
-		encIn, host := r.encodingView(in, client)
-		eff := ""
-		if host != r.host {
-			eff = host
+		for _, v := range r.views(in, client) {
+			eff := ""
+			if v.host != r.host {
+				eff = v.host
+			}
+			out = append(out, Bundle{Inbound: v.in, Client: client, EffectiveHost: eff})
 		}
-		out = append(out, Bundle{Inbound: encIn, Client: client, EffectiveHost: eff})
 	}
 	return out, nil
 }
@@ -413,11 +459,6 @@ func (r *Resolver) BuildBundleForClient(c *model.Client) ([]ShareLink, error) {
 			continue
 		}
 		client := sc
-		encIn, host := r.encodingView(in, client)
-		uri, err := BuildURIForClient(encIn, &client, host)
-		if err != nil || uri == "" {
-			continue
-		}
 		var settings map[string]any
 		if in.Settings != "" {
 			_ = json.Unmarshal([]byte(in.Settings), &settings)
@@ -425,12 +466,18 @@ func (r *Resolver) BuildBundleForClient(c *model.Client) ([]ShareLink, error) {
 		isArgo := r.argoHost != "" && truthyBool(settings["argo_bound"]) && isCDNCompatibleType(in.Type)
 		isEdge := !isArgo && r.antiblock.EdgeDomain != "" && truthyBool(settings["edge_bound"]) && isCDNCompatibleType(in.Type)
 		isCDN := isEdge || (!isArgo && PickCDNHost(in, client, settings, r.cdnPool) != "")
-		links = append(links, ShareLink{
-			URI:        uri,
-			ServerHost: r.realServerHost(in),
-			CDN:        isCDN,
-			Argo:       isArgo,
-		})
+		for i, v := range r.views(in, client) {
+			uri, err := BuildURIForClient(v.in, &client, v.host)
+			if err != nil || uri == "" {
+				continue
+			}
+			links = append(links, ShareLink{
+				URI:        uri,
+				ServerHost: r.realServerHost(in),
+				CDN:        isCDN || i > 0,
+				Argo:       isArgo,
+			})
+		}
 	}
 	return links, nil
 }

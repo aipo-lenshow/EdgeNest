@@ -1251,19 +1251,19 @@ const en = {
     cdnSpeedtestResults: "Results (fast → slow)",
     cdnRecommended: "Best",
     cdnSelectHint:
-      "Tick the preferred IPs you want (ticking adds, unticking removes): one is enough for personal use, up to three for multi-user / shared nodes. Low latency = snappier page loads / handshakes, high Mbps = smoother streaming / downloads; the one marked \"Best\" has the lowest latency — pick it if unsure.",
+      "Tick the preferred IPs you want (ticking adds, unticking removes) — 3–6 is a good number, ideally from different ranges. Low latency = snappier page loads / handshakes, high Mbps = smoother streaming / downloads; the one marked \"Best\" has the lowest latency — pick it if unsure.",
     cdnUnreachable: "unreachable",
     cdnUnreachableHidden: "{{n}} unreachable hidden",
     cdnNoReachable:
       "None of the candidate addresses are reachable from this server — no preferred IP to pick. Cloudflare may be blocked on this network; try another network, or click \"Refresh candidate pool\" to draw a fresh batch and re-test.",
     cdnSpeedtestHint:
-      "Measures latency (with SNI) from this server to each candidate Cloudflare address; turn on \"Deep test\" to also measure real download speed. \"Adopt fastest\" auto-ticks the top few into the preferred IPs; or tick / untick rows yourself (ticking adds, unticking removes). Unreachable ones are hidden. Remember to Save.",
+      "Measures latency (with SNI) from this server to each candidate Cloudflare address; turn on \"Deep test\" to also measure real download speed. \"Adopt fastest\" auto-ticks the top few into the preferred IPs; or tick / untick rows yourself (ticking adds, unticking removes). Unreachable ones are hidden. Remember to Save. Note: results reflect this server's own path to Cloudflare; if your users are elsewhere, prefer addresses measured as fast from their networks.",
     cdnSpeedRefHint: "Download speed is a point-in-time reference — it swings with momentary network conditions, so it differs every run. Ranking and the recommendation go by latency.",
     cdnSpeedRefNote: "Download speed is a reference only (an instantaneous value that varies between runs); the list order and \"Adopt fastest\" both rank by latency — pick the lowest-latency one with adequate speed.",
     cdnPreferOneLead:
-      "Recommended: 1 preferred IP for personal use, 3 for many users / shared nodes.",
+      "Recommended: 3–6 preferred IPs from different ranges.",
     cdnPreferOneTip:
-      "Why: each client is pinned to a single address from the pool — one user only ever uses one, so a bigger pool doesn't help; multiple IPs spread traffic across many users so one address getting rate-limited or blocked doesn't take everyone down.",
+      "Reverse-proxy / Argo inbounds: every preferred IP becomes its own node in the subscription (suffixed -CF1, -CF2…, up to 8), and each user's client picks whichever is fastest on their own network. Direct CDN inbounds: each user is pinned to one address from the pool. Spreading across ranges also keeps one rate-limited or blocked address from taking everyone down.",
     cdnRefreshCandidates: "Refresh candidate pool",
     cdnRefreshing: "Refreshing…",
     cdnRefreshTip:

@@ -1250,19 +1250,19 @@ const vi = {
     cdnSpeedtestResults: "Kết quả (nhanh → chậm)",
     cdnRecommended: "Tốt nhất",
     cdnSelectHint:
-      "Đánh dấu các IP ưu tiên bạn muốn (đánh dấu để thêm, bỏ đánh dấu để xóa): một cái là đủ cho dùng cá nhân, tối đa ba cho nút đa người dùng / chia sẻ. Độ trễ thấp = tải trang / bắt tay nhanh hơn, Mbps cao = phát trực tuyến / tải xuống mượt hơn; cái được đánh dấu \"Tốt nhất\" có độ trễ thấp nhất — chọn nó nếu không chắc.",
+      "Đánh dấu các IP ưu tiên bạn muốn (đánh dấu là thêm, bỏ đánh dấu là xóa); nên chọn 3–6 IP, tốt nhất thuộc các dải khác nhau. Độ trễ thấp = trang và bắt tay phản hồi nhanh, Mbps cao = xem video / tải xuống mượt hơn; IP được gắn \"Tốt nhất\" có độ trễ thấp nhất — chọn nó nếu chưa chắc.",
     cdnUnreachable: "không tiếp cận được",
     cdnUnreachableHidden: "{{n}} cái không tiếp cận được bị ẩn",
     cdnNoReachable:
       "Không có địa chỉ ứng viên nào tiếp cận được từ máy chủ này — không có IP ưu tiên để chọn. Cloudflare có thể bị chặn trên mạng này; thử mạng khác, hoặc nhấn \"Làm mới pool ứng viên\" để rút một lô mới và đo lại.",
     cdnSpeedtestHint:
-      "Đo độ trễ (với SNI) từ máy chủ này tới từng địa chỉ Cloudflare ứng viên; bật \"Đo sâu\" để cũng đo tốc độ tải xuống thật. \"Lấy nhanh nhất\" tự đánh dấu vài cái đầu vào các IP ưu tiên; hoặc tự đánh dấu / bỏ đánh dấu các dòng (đánh dấu để thêm, bỏ đánh dấu để xóa). Những cái không tiếp cận được bị ẩn. Nhớ Lưu.",
+      "Đo độ trễ (với SNI) từ máy chủ này tới từng địa chỉ Cloudflare ứng viên; bật \"Đo sâu\" để cũng đo tốc độ tải xuống thật. \"Lấy nhanh nhất\" tự đánh dấu vài cái đầu vào các IP ưu tiên; hoặc tự đánh dấu / bỏ đánh dấu các dòng (đánh dấu để thêm, bỏ đánh dấu để xóa). Những cái không tiếp cận được bị ẩn. Nhớ Lưu. Lưu ý: kết quả chỉ phản ánh đường đi từ máy chủ này tới Cloudflare; nếu người dùng ở nơi khác, nên dùng các địa chỉ đo được là nhanh từ mạng của họ.",
     cdnSpeedRefHint: "Tốc độ tải xuống là tham chiếu tại một thời điểm — nó dao động theo điều kiện mạng nhất thời, nên khác nhau mỗi lần chạy. Xếp hạng và khuyến nghị dựa theo độ trễ.",
     cdnSpeedRefNote: "Tốc độ tải xuống chỉ là tham chiếu (một giá trị tức thời thay đổi giữa các lần chạy); thứ tự danh sách và \"Lấy nhanh nhất\" đều xếp hạng theo độ trễ — chọn cái có độ trễ thấp nhất với tốc độ đủ.",
     cdnPreferOneLead:
-      "Khuyến nghị: 1 IP ưu tiên cho dùng cá nhân, 3 cho nhiều người dùng / nút chia sẻ.",
+      "Khuyến nghị: 3–6 IP ưu tiên thuộc các dải khác nhau.",
     cdnPreferOneTip:
-      "Tại sao: mỗi client được ghim vào một địa chỉ duy nhất từ pool — một người dùng chỉ dùng một cái, nên pool lớn hơn không giúp ích; nhiều IP phân tán lưu lượng qua nhiều người dùng nên một địa chỉ bị giới hạn tốc độ hoặc bị chặn không làm sập tất cả.",
+      "Inbound qua reverse proxy / Argo: mỗi IP ưu tiên trở thành một node riêng trong gói đăng ký (hậu tố -CF1, -CF2…, tối đa 8), và client của từng người dùng tự chọn node nhanh nhất trên mạng của họ. Inbound CDN trực tiếp: mỗi người dùng được gán cố định một địa chỉ trong pool. Trải đều nhiều dải cũng giúp tránh việc một địa chỉ bị giới hạn tốc độ hoặc bị chặn làm mọi người mất kết nối.",
     cdnRefreshCandidates: "Làm mới pool ứng viên",
     cdnRefreshing: "Đang làm mới…",
     cdnRefreshTip:
