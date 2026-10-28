@@ -1,6 +1,10 @@
 package share
 
-import "testing"
+import (
+	"fmt"
+	"net"
+	"testing"
+)
 
 // RecommendedCDNIPs must be a subset of the full candidate pool — the "fill
 // recommended" button seeds from the same set the speed test later probes, so a
@@ -36,5 +40,31 @@ func TestTopNFastest(t *testing.T) {
 	all := TopNFastest(results, 10)
 	if len(all) != 3 {
 		t.Fatalf("want 3 reachable, got %d (%v)", len(all), all)
+	}
+}
+
+func TestClientCandidates_PoolFirstDedupedCappedIPv4Only(t *testing.T) {
+	pool := []string{" 103.31.4.68 ", "", "not-an-ip", "2606:4700::1", "198.51.100.9"}
+	got := ClientCandidates(pool)
+	if len(got) < 3 || got[0] != "103.31.4.68" || got[1] != "198.51.100.9" {
+		t.Fatalf("pool entries should lead, trimmed: %v", got)
+	}
+	seen := map[string]bool{}
+	for _, ip := range got {
+		if seen[ip] {
+			t.Fatalf("duplicate %s in %v", ip, got)
+		}
+		seen[ip] = true
+		if net.ParseIP(ip).To4() == nil {
+			t.Fatalf("non-IPv4 entry %q leaked", ip)
+		}
+	}
+
+	var big []string
+	for i := 1; i <= maxClientCandidates+10; i++ {
+		big = append(big, fmt.Sprintf("198.51.100.%d", i))
+	}
+	if n := len(ClientCandidates(big)); n != maxClientCandidates {
+		t.Fatalf("want cap %d, got %d", maxClientCandidates, n)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"net"
+	"strings"
 )
 
 // CFCandidateIPs is a curated pool of Cloudflare anycast IPs drawn from
@@ -150,4 +151,60 @@ func randomHostInRange(cidr string) string {
 	b := make([]byte, 4)
 	binary.BigEndian.PutUint32(b, base+off)
 	return net.IPv4(b[0], b[1], b[2], b[3]).String()
+}
+
+// clientProbeCandidates are Cloudflare addresses that held up when probed from
+// end-user access networks (home broadband and mobile data), not from a VPS.
+// What is fast from a datacenter says little about what a user's ISP routes
+// well, so this list is kept apart from CFCandidateIPs. It is spread over
+// several /24s on purpose: an ISP that routes one block badly usually routes
+// another one fine.
+var clientProbeCandidates = []string{
+	"103.31.4.230",
+	"103.31.4.68",
+	"103.31.4.231",
+	"103.31.4.170",
+	"103.31.4.2",
+	"103.31.4.71",
+	"162.159.129.27",
+	"162.159.133.199",
+	"162.159.143.206",
+	"162.159.139.2",
+	"162.159.152.20",
+	"162.159.151.216",
+	"162.159.82.27",
+	"104.17.152.60",
+	"188.114.97.75",
+	"188.114.99.9",
+	"188.114.96.31",
+	"188.114.96.37",
+	"188.114.96.156",
+}
+
+// maxClientCandidates caps the list handed to clients. Each client probes only
+// a handful at a time, so a longer list adds no coverage, just header bytes.
+const maxClientCandidates = 30
+
+// ClientCandidates returns the addresses an EdgeNest client may probe from its
+// own network to re-point CDN nodes: the operator's preferred pool first (it is
+// what the subscription already dials), then the curated client list, deduped
+// and capped. Blank entries and anything that isn't an IPv4 address are
+// dropped so a typo in the pool can't reach clients.
+func ClientCandidates(pool []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, list := range [][]string{pool, clientProbeCandidates} {
+		for _, ip := range list {
+			ip = strings.TrimSpace(ip)
+			if len(out) == maxClientCandidates {
+				return out
+			}
+			if seen[ip] || net.ParseIP(ip).To4() == nil {
+				continue
+			}
+			seen[ip] = true
+			out = append(out, ip)
+		}
+	}
+	return out
 }
