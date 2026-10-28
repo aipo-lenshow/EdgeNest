@@ -27,15 +27,15 @@ func TestEdgePool_FansOutOneNodePerAddress(t *testing.T) {
 	r := NewResolver(st, "1.2.3.4", pool, "", core.NodeCapability{}).
 		WithAntiBlock(antiblock.Config{EdgeDomain: "cdn.example.com"})
 	got := edgeURIs(t, r, token)
-	if len(got) != 3 {
-		t.Fatalf("want domain node + 2 preferred nodes, got %d:\n%s", len(got), strings.Join(got, "\n"))
-	}
-	if !strings.Contains(got[0], "@cdn.example.com:443") {
-		t.Errorf("first node should still dial the edge domain:\n%s", got[0])
+	if len(got) != 2 {
+		t.Fatalf("want 2 preferred nodes and no domain node, got %d:\n%s", len(got), strings.Join(got, "\n"))
 	}
 	names := map[string]bool{}
 	for i, addr := range pool {
-		u := got[i+1]
+		u := got[i]
+		if strings.Contains(u, "@cdn.example.com:") {
+			t.Errorf("node %d still dials the edge domain:\n%s", i, u)
+		}
 		for _, want := range []string{"@" + addr + ":443", "sni=cdn.example.com", "host=cdn.example.com", "security=tls"} {
 			if !strings.Contains(u, want) {
 				t.Errorf("preferred node %d missing %q:\n%s", i+1, want, u)
@@ -97,8 +97,19 @@ func TestEdgePool_Capped(t *testing.T) {
 	}
 	r := NewResolver(st, "1.2.3.4", pool, "", core.NodeCapability{}).
 		WithAntiBlock(antiblock.Config{EdgeDomain: "cdn.example.com"})
-	if got := len(edgeURIs(t, r, token)); got != maxEdgePoolNodes+1 {
-		t.Fatalf("want %d edge nodes, got %d", maxEdgePoolNodes+1, got)
+	if got := len(edgeURIs(t, r, token)); got != maxEdgePoolNodes {
+		t.Fatalf("want %d edge nodes, got %d", maxEdgePoolNodes, got)
+	}
+}
+
+func TestEdgePool_KeepsDomainNodeWhenPoolHasNoUsableAddress(t *testing.T) {
+	st, nodeID := newStore(t)
+	token := seedEdge(t, st, nodeID)
+	r := NewResolver(st, "1.2.3.4", []string{" ", "cdn.example.com"}, "", core.NodeCapability{}).
+		WithAntiBlock(antiblock.Config{EdgeDomain: "cdn.example.com"})
+	got := edgeURIs(t, r, token)
+	if len(got) != 1 || !strings.Contains(got[0], "@cdn.example.com:443") {
+		t.Fatalf("want only the domain node, got:\n%s", strings.Join(got, "\n"))
 	}
 }
 
@@ -117,10 +128,7 @@ func TestEdgePool_BundlesCarryAddressAsServer(t *testing.T) {
 			hosts = append(hosts, b.EffectiveHost+"|"+remarkOf(b.Inbound, b.Client))
 		}
 	}
-	if len(hosts) != 2 || !strings.HasPrefix(hosts[0], "cdn.example.com|") || !strings.HasPrefix(hosts[1], "103.31.4.230|") {
+	if len(hosts) != 1 || !strings.HasPrefix(hosts[0], "103.31.4.230|") || !strings.HasSuffix(hosts[0], "-CF1") {
 		t.Fatalf("unexpected edge bundles: %v", hosts)
-	}
-	if hosts[0][strings.Index(hosts[0], "|"):] == hosts[1][strings.Index(hosts[1], "|"):] {
-		t.Fatalf("bundle names collide: %v", hosts)
 	}
 }
