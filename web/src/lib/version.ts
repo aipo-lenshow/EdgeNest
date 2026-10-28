@@ -2,4 +2,4 @@
 // Update this together with web/package.json + Go-side ldflags when cutting
 // a new release.
 
-export const APP_VERSION_LABEL = "v1.34.1029";
+export const APP_VERSION_LABEL = "v1.35.1029";

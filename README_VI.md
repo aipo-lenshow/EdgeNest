@@ -5,7 +5,7 @@
 > Bảng điều khiển quản lý node proxy tự lưu trữ — hai engine, theo trình hướng dẫn, triển khai bằng một lệnh.
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-![Version](https://img.shields.io/badge/version-1.34.1029-green.svg)
+![Version](https://img.shields.io/badge/version-1.35.1029-green.svg)
 ![Engine](https://img.shields.io/badge/engine-sing--box%20%2B%20Xray-orange.svg)
 
 EdgeNest giúp người dùng trong môi trường mạng bị hạn chế truy cập ổn định các công cụ AI, tài liệu kỹ thuật và tài nguyên học tập. Chỉ một lệnh là dựng xong bảng điều khiển, phát hành subscription và các engine proxy trên VPS của bạn — quản lý inbound đa giao thức, hạn mức lưu lượng, chứng chỉ và tối ưu outbound ở cùng một nơi, tất cả qua giao diện đồ họa, không cần sửa file cấu hình bằng tay.
@@ -87,7 +87,7 @@ Mặc định, trình cài đặt tải binary dựng sẵn từ GitHub Release,
 Tarball đã kèm sẵn binary `edgenest` và `sing-box` để trình cài đặt dùng trực tiếp — bỏ qua cả việc tải lẫn biên dịch trên máy. Tiện cho máy ít bộ nhớ hoặc phân phối ngoại tuyến.
 
 ```bash
-VER=1.34.1029
+VER=1.35.1029
 ARCH=amd64   # dùng arm64 trên máy ARM64
 curl -fsSL -O https://github.com/aipo-lenshow/EdgeNest/releases/download/v${VER}/edgenest-${VER}-linux-${ARCH}.tar.gz
 tar -xzf edgenest-${VER}-linux-${ARCH}.tar.gz
@@ -156,7 +156,7 @@ EdgeNest tạo ra các node; những dự án dưới đây kết nối tới ch
 | Biến | Mặc định | Mục đích |
 |---|---|---|
 | `EDGENEST_LANG` | nhận diện từ `$LANG` | Ngôn ngữ bảng điều khiển và trình cài đặt (`en` / `zh` / `zh-TW` / `fa` / `ru` / `vi`) |
-| `EDGENEST_VERSION` | `1.34.1029` | Phiên bản dùng khi tải binary dựng sẵn |
+| `EDGENEST_VERSION` | `1.35.1029` | Phiên bản dùng khi tải binary dựng sẵn |
 | `EDGENEST_RELEASE_BASE` | nguồn tải GitHub Release | URL gốc cho các binary dựng sẵn |
 | `SINGBOX_VERSION` | `1.14.4` | Phiên bản sing-box (luôn dựng kèm tag thống kê lưu lượng `with_v2ray_api`) |
 | `XRAY_VERSION` | `26.10.21` | Phiên bản Xray (tùy chọn) |
