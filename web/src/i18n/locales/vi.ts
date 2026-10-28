@@ -1453,6 +1453,8 @@ const vi = {
     issuingFor: "Đang cấp {{domain}}… (xác thực ACME, ~vài chục giây)",
     issueAction: "Cấp",
     errDomainRequired: "Tên miền là bắt buộc",
+    errDomainIncomplete: "Hãy nhập tên miền đầy đủ, ví dụ s1.example.com. Chỉ nhập tiền tố (như s1) hoặc địa chỉ IP thì không cấp chứng chỉ được.",
+    errPort80Busy: "Cổng 80 đang bị {{proc}} chiếm, nên không thể xác minh qua HTTP. Hãy cấp chứng chỉ này bằng xác minh DNS (dns-01).",
     fieldDomain: "Tên miền",
     fieldEmail: "Email",
     fieldEmailHint: "Tùy chọn — quay về cài đặt acme_email.",

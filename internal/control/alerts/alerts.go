@@ -25,8 +25,11 @@ const (
 	KindQuota  Kind = "quota"  // a user's usage crossed the warn threshold
 	KindExpiry Kind = "expiry" // a user expires within the warn window
 	KindCert   Kind = "cert"   // a certificate expires within the warn window
-	KindEngine Kind = "engine" // a proxy engine that serves inbounds is offline
-	KindUpdate Kind = "update" // a newer EdgeNest release is available (Target = version)
+	// KindCertRenew: automatic renewal of a certificate is failing while it is
+	// in the renewal window but not yet close enough for KindCert.
+	KindCertRenew Kind = "cert_renew"
+	KindEngine    Kind = "engine" // a proxy engine that serves inbounds is offline
+	KindUpdate    Kind = "update" // a newer EdgeNest release is available (Target = version)
 )
 
 // Thresholds bound the "needs attention" detection. Defaults are deliberately
@@ -69,6 +72,7 @@ func NewDetector(s *store.Store, nodeID string) *Detector {
 func (d *Detector) Attention(now time.Time, th Thresholds) []Alert {
 	out := append(d.quotaWarnings(th.QuotaPct), d.expiringUsers(now, th.ExpiryDays)...)
 	out = append(out, d.expiringCerts(now, th.CertDays)...)
+	out = append(out, d.failingRenewals(now, th.CertDays)...)
 	return out
 }
 
@@ -187,6 +191,36 @@ func (d *Detector) expiringCerts(now time.Time, days int) []Alert {
 	return out
 }
 
+// renewWindowDays matches the cert manager's renewal window: inside it the
+// daily renewal pass has been retrying, so a recorded error means it failed.
+const renewWindowDays = 30
+
+// failingRenewals flags auto-renewing certificates whose last attempt failed
+// while they are inside the renewal window but outside the KindCert window, so
+// the operator hears about a broken renewal weeks before the cert lapses
+// instead of only once it is about to.
+func (d *Detector) failingRenewals(now time.Time, certDays int) []Alert {
+	if certDays <= 0 {
+		certDays = 14
+	}
+	n := now.Unix()
+	soon := now.Add(time.Duration(certDays) * 24 * time.Hour).Unix()
+	window := now.Add(renewWindowDays * 24 * time.Hour).Unix()
+	certs, err := d.store.ListCertificates(d.nodeID)
+	if err != nil {
+		return nil
+	}
+	var out []Alert
+	for _, c := range certs {
+		if !c.AutoRenew || c.LastError == "" || c.ExpiresAt <= soon || c.ExpiresAt > window {
+			continue
+		}
+		out = append(out, Alert{Kind: KindCertRenew, Target: c.Domain, Days: daysUntil(c.ExpiresAt, n)})
+	}
+	sortAlerts(out)
+	return out
+}
+
 // ── rendering ────────────────────────────────────────────────────────────────
 
 // Line renders one alert as a localized bullet (plain text — the daily digest
@@ -201,6 +235,8 @@ func Line(a Alert, lang string) string {
 		return "• " + a.Target + expiresIn(a.Days, lang)
 	case KindCert:
 		return "• " + tr(lang, "证书 ", "cert ") + a.Target + expiresIn(a.Days, lang)
+	case KindCertRenew:
+		return "• " + tr(lang, "证书 ", "cert ") + a.Target + tr(lang, " 自动续签失败", " auto-renewal failing") + expiresIn(a.Days, lang)
 	case KindEngine:
 		return "• " + a.Target + tr(lang, " 引擎已掉线", " engine offline")
 	case KindUpdate:

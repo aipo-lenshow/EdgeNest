@@ -1453,6 +1453,8 @@ const ru = {
     issuingFor: "Выпуск {{domain}}… (проверка ACME, ~десятки секунд)",
     issueAction: "Выпустить",
     errDomainRequired: "Домен обязателен",
+    errDomainIncomplete: "Укажите полное доменное имя, например s1.example.com. Для одного префикса (например, s1) или IP-адреса сертификат не выдаётся.",
+    errPort80Busy: "Порт 80 занят процессом {{proc}}, поэтому HTTP-проверка невозможна. Выпустите этот сертификат через DNS-проверку (dns-01).",
     fieldDomain: "Домен",
     fieldEmail: "Email",
     fieldEmailHint: "Необязательно — используется настройка acme_email.",

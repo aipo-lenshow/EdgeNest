@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/portowner"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 )
 
@@ -78,7 +79,10 @@ func newMgr(t *testing.T, issuer Issuer) (*Manager, *store.Store, uint) {
 		t.Fatalf("ensure node: %v", err)
 	}
 	certsDir := filepath.Join(dir, "certs")
-	return NewManager(st, certsDir, issuer), st, n.ID
+	m := NewManager(st, certsDir, issuer)
+	// Tests must not depend on whether the machine running them has :80 taken.
+	m.portOwner = func(int) *portowner.Owner { return nil }
+	return m, st, n.ID
 }
 
 func TestIssue_WritesPEMAndPersists(t *testing.T) {

@@ -1448,6 +1448,8 @@ const zhTW = {
     issuingFor: "正在簽發 {{domain}}… （ACME 驗證中，約需數十秒）",
     issueAction: "簽發",
     errDomainRequired: "請填寫域名",
+    errDomainIncomplete: "請填寫完整的網域，例如 s1.example.com。只填前綴（如 s1）或填 IP 都簽不了。",
+    errPort80Busy: "80 埠正被 {{proc}} 佔用，HTTP 驗證用不了。請改用 DNS 驗證（dns-01）簽發這張憑證。",
     fieldDomain: "域名",
     fieldEmail: "Email",
     fieldEmailHint: "可選 — 留空則使用 acme_email 設定。",

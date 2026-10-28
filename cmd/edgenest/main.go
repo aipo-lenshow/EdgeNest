@@ -153,6 +153,14 @@ func runStandalone(cfg config.Config) {
 		log.Printf("ACME: using Let's Encrypt STAGING directory (test certs, not browser-trusted)")
 	}
 	certMgr := cert.NewManager(st, certsDir, issuer)
+	// A renewed certificate only takes effect in the engines after a restart;
+	// re-apply so they pick up the new files right away. (The built-in gateway
+	// re-reads its certificate on its own when the file changes.)
+	certMgr.OnReplaced(func(nodeID uint) {
+		if res, err := orch.Apply(context.Background(), nodeID); err != nil || !res.OK {
+			log.Printf("cert: reload after renewal failed: %v %s", err, res.Message)
+		}
+	})
 	cert.NewScheduler(certMgr, 0).Start(context.Background())
 
 	// First-run wizard. Takes certMgr so a grey-cloud domain batch gets a real

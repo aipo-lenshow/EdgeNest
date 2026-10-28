@@ -1,8 +1,10 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -35,8 +37,14 @@ func (h *Handler) IssueCert(c *gin.Context) {
 		core.Fail(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 		return
 	}
+	req.Domain = strings.ToLower(strings.TrimSpace(req.Domain))
 	if req.Domain == "" {
 		core.Fail(c, http.StatusBadRequest, "BAD_REQUEST", "domain is required")
+		return
+	}
+	if !cert.ValidDomain(req.Domain) {
+		core.Fail(c, http.StatusBadRequest, "DOMAIN_INCOMPLETE",
+			"domain must be a full hostname such as s1.example.com")
 		return
 	}
 	if req.Email == "" {
@@ -60,6 +68,10 @@ func (h *Handler) IssueCert(c *gin.Context) {
 		h.auditLog(c, "cert.issue", "cert:"+req.Domain, map[string]string{
 			"error": err.Error(), "mode": req.Mode,
 		})
+		if errors.Is(err, cert.ErrPort80Busy) {
+			core.Fail(c, http.StatusConflict, "PORT80_BUSY", err.Error())
+			return
+		}
 		core.Fail(c, http.StatusBadGateway, "ACME_FAILED", err.Error())
 		return
 	}
@@ -107,6 +119,10 @@ func (h *Handler) RenewCert(c *gin.Context) {
 	if err != nil {
 		h.auditLog(c, "cert.renew", "cert:"+strconv.Itoa(int(id)),
 			map[string]string{"error": err.Error()})
+		if errors.Is(err, cert.ErrPort80Busy) {
+			core.Fail(c, http.StatusConflict, "PORT80_BUSY", err.Error())
+			return
+		}
 		core.Fail(c, http.StatusBadGateway, "ACME_FAILED", err.Error())
 		return
 	}

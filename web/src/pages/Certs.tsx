@@ -76,6 +76,12 @@ function fmtRetryAfter(s: string): string {
   return isNaN(d.getTime()) ? "" : d.toLocaleString();
 }
 
+// A full hostname a public CA can issue for (mirrors cert.ValidDomain): a bare
+// label like "s1", an IP or a URL is caught here instead of coming back from
+// Let's Encrypt as an opaque rejectedIdentifier error.
+const FULL_HOSTNAME =
+  /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/;
+
 // Turn a raw lego/ACME error (long English strings with URLs) into a short,
 // localized, action-oriented line. We never surface the raw text to users — it
 // stays in the element's title attribute for operators who want the detail.
@@ -93,6 +99,16 @@ function humanizeCertError(raw: string, t: TFn): string {
       ? t("certs.errRateLimitedUntil", { time: when })
       : t("certs.errRateLimited");
   }
+  if (lower.includes("port 80 is in use")) {
+    const m = raw.match(/in use by ([^;]+);/i);
+    return t("certs.errPort80Busy", { proc: m ? m[1].trim() : "?" });
+  }
+  if (
+    lower.includes("full hostname") ||
+    lower.includes("rejectedidentifier") ||
+    lower.includes("domain_incomplete")
+  )
+    return t("certs.errDomainIncomplete");
   if (lower.includes("email required") || lower.includes("acme_email")) return t("certs.errEmail");
   if (lower.includes("timeout") || lower.includes("deadline"))
     return t("certs.errTimeout");
@@ -389,12 +405,17 @@ function IssueModal({
 
   function submit() {
     setErr("");
-    if (!domain.trim()) {
+    const d = domain.trim().toLowerCase();
+    if (!d) {
       setErr(t("certs.errDomainRequired"));
       return;
     }
+    if (!FULL_HOSTNAME.test(d) || d.length > 253) {
+      setErr(t("certs.errDomainIncomplete"));
+      return;
+    }
     onSubmit({
-      domain: domain.trim(),
+      domain: d,
       email: email || undefined,
       mode,
       dns_provider: mode === "dns-01" ? dnsProvider || undefined : undefined,

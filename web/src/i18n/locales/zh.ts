@@ -1450,6 +1450,8 @@ const zh = {
     issuingFor: "正在签发 {{domain}}… （ACME 验证中，约需数十秒）",
     issueAction: "签发",
     errDomainRequired: "请填写域名",
+    errDomainIncomplete: "请填写完整的域名，例如 s1.example.com。只填前缀（如 s1）或填 IP 都签不了。",
+    errPort80Busy: "80 端口正被 {{proc}} 占用，HTTP 验证用不了。请改用 DNS 验证（dns-01）签发这个证书。",
     fieldDomain: "域名",
     fieldEmail: "Email",
     fieldEmailHint: "可选 — 留空则使用 acme_email 设置。",

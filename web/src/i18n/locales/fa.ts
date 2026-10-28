@@ -1453,6 +1453,8 @@ const fa = {
     issuingFor: "در حال صدور {{domain}}… (اعتبارسنجی ACME، ~ده‌ها ثانیه)",
     issueAction: "صدور",
     errDomainRequired: "دامنه الزامی است",
+    errDomainIncomplete: "دامنهٔ کامل را وارد کنید، مثلاً s1.example.com. برای یک پیشوند تنها (مثل s1) یا نشانی IP گواهی صادر نمی‌شود.",
+    errPort80Busy: "درگاه ۸۰ در اختیار {{proc}} است، بنابراین اعتبارسنجی HTTP ممکن نیست. این گواهی را با اعتبارسنجی DNS (dns-01) صادر کنید.",
     fieldDomain: "دامنه",
     fieldEmail: "ایمیل",
     fieldEmailHint: "اختیاری — به تنظیم acme_email بازمی‌گردد.",

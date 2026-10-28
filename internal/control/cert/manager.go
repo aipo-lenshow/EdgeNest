@@ -17,9 +17,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/portowner"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 )
 
@@ -57,6 +60,30 @@ type Manager struct {
 	certsDir  string
 	issuer    Issuer
 	renewSoon time.Duration // renew when this much (or less) is left
+	// portOwner reports who listens on a TCP port (nil = free); swapped in tests.
+	portOwner func(int) *portowner.Owner
+	// onReplaced runs after a certificate that was already on disk has been
+	// re-issued, so the engines reload the new files instead of serving the old
+	// ones until their next unrelated restart. Nil = no-op.
+	onReplaced func(nodeID uint)
+}
+
+// OnReplaced registers the hook run (in its own goroutine) after an existing
+// certificate is re-issued or renewed.
+func (m *Manager) OnReplaced(fn func(nodeID uint)) { m.onReplaced = fn }
+
+// ErrPort80Busy is returned for an HTTP-01 request on port 80 while another
+// program holds that port: the ACME library could never bind it, so the order
+// would fail anyway and only burn the CA's weekly issuance allowance.
+var ErrPort80Busy = errors.New("port 80 is in use")
+
+var hostnameRE = regexp.MustCompile(`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
+
+// ValidDomain reports whether d is a full hostname a public CA can issue for
+// (e.g. s1.example.com). A bare label like "s1", an IP, or a URL is rejected —
+// Let's Encrypt answers those with an opaque rejectedIdentifier error.
+func ValidDomain(d string) bool {
+	return len(d) <= 253 && hostnameRE.MatchString(strings.ToLower(d))
 }
 
 // NewManager constructs a Manager. certsDir is where PEM files land; one
@@ -67,17 +94,31 @@ func NewManager(s *store.Store, certsDir string, issuer Issuer) *Manager {
 		certsDir:  certsDir,
 		issuer:    issuer,
 		renewSoon: 30 * 24 * time.Hour,
+		portOwner: portowner.Find,
 	}
 }
 
 // Issue obtains a new certificate and persists it. If a Certificate row for
 // (nodeID, domain) already exists, it is updated in place.
 func (m *Manager) Issue(ctx context.Context, nodeID uint, req IssueRequest) (*model.Certificate, error) {
+	row, replaced, err := m.issue(ctx, nodeID, req)
+	if replaced {
+		m.replaced(nodeID)
+	}
+	return row, err
+}
+
+// issue does the work of Issue and reports whether it overwrote certificate
+// files that were already in place (the case that needs an engine reload).
+func (m *Manager) issue(ctx context.Context, nodeID uint, req IssueRequest) (*model.Certificate, bool, error) {
 	if req.Domain == "" {
-		return nil, errors.New("domain required")
+		return nil, false, errors.New("domain required")
+	}
+	if !ValidDomain(req.Domain) {
+		return nil, false, fmt.Errorf("%q is not a full hostname (e.g. s1.example.com)", req.Domain)
 	}
 	if req.Email == "" {
-		return nil, errors.New("email required (ACME account contact)")
+		return nil, false, errors.New("email required (ACME account contact)")
 	}
 	if req.Mode == "" {
 		req.Mode = "http-01"
@@ -85,34 +126,61 @@ func (m *Manager) Issue(ctx context.Context, nodeID uint, req IssueRequest) (*mo
 	if req.HTTPPort == 0 {
 		req.HTTPPort = 80
 	}
+	if req.Mode == "http-01" && req.HTTPPort == 80 && m.portOwner != nil {
+		if o := m.portOwner(80); o != nil {
+			err := fmt.Errorf("%w by %s; switch this certificate to DNS validation (dns-01)", ErrPort80Busy, o.Process)
+			m.recordFailure(nodeID, req, err)
+			return nil, false, err
+		}
+	}
 
 	res, err := m.issuer.Obtain(ctx, req)
 	if err != nil {
 		// Persist a row noting the failure so the operator sees it in /certs.
 		m.recordFailure(nodeID, req, err)
-		return nil, fmt.Errorf("acme obtain: %w", err)
+		return nil, false, fmt.Errorf("acme obtain: %w", err)
 	}
+
+	prev, _ := m.findCert(nodeID, req.Domain)
+	replaced := prev != nil && prev.CertPath != ""
 
 	certPath, keyPath, err := m.writePEM(req.Domain, res)
 	if err != nil {
-		return nil, fmt.Errorf("write pem: %w", err)
+		return nil, false, fmt.Errorf("write pem: %w", err)
 	}
 
 	row, err := m.upsertCert(nodeID, req, certPath, keyPath, res)
 	if err != nil {
-		return nil, fmt.Errorf("persist cert: %w", err)
+		return nil, replaced, fmt.Errorf("persist cert: %w", err)
 	}
 	if req.Mode == "dns-01" {
 		m.persistDNSConfig(req.DNSProvider, req.DNSConfig)
 	}
-	return row, nil
+	return row, replaced, nil
+}
+
+func (m *Manager) replaced(nodeID uint) {
+	if m.onReplaced != nil {
+		go m.onReplaced(nodeID)
+	}
 }
 
 // Renew re-issues a cert by ID. Falls back to a fresh Issue under the hood.
 func (m *Manager) Renew(ctx context.Context, certID uint) (*model.Certificate, error) {
+	row, nodeID, replaced, err := m.renew(ctx, certID)
+	if replaced {
+		m.replaced(nodeID)
+	}
+	return row, err
+}
+
+// renew is Renew without the reload hook; it also returns the cert's node so
+// a caller can reload even when persisting the new row failed after the files
+// were already swapped.
+func (m *Manager) renew(ctx context.Context, certID uint) (*model.Certificate, uint, bool, error) {
 	existing, err := m.getCert(certID)
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
 	}
 	// Email comes from the cert row (captured at issue time). Rows issued before
 	// the Email column existed have it empty — fall back to the acme_email
@@ -129,7 +197,8 @@ func (m *Manager) Renew(ctx context.Context, certID uint) (*model.Certificate, e
 		// DNS creds are kept in Settings, not on the cert row; load on demand.
 		DNSConfig: m.loadDNSConfig(existing.DNSProvider),
 	}
-	return m.Issue(ctx, existing.NodeID, req)
+	row, replaced, err := m.issue(ctx, existing.NodeID, req)
+	return row, existing.NodeID, replaced, err
 }
 
 // CheckAndRenew runs one pass: any cert with NotAfter within `renewSoon` is
@@ -142,6 +211,13 @@ func (m *Manager) CheckAndRenew(ctx context.Context) int {
 	}
 	now := time.Now()
 	renewed := 0
+	// One reload per node after the pass, not one per renewed certificate.
+	reload := map[uint]bool{}
+	defer func() {
+		for id := range reload {
+			m.replaced(id)
+		}
+	}()
 	for _, c := range all {
 		if !c.AutoRenew {
 			continue
@@ -152,7 +228,11 @@ func (m *Manager) CheckAndRenew(ctx context.Context) int {
 		if time.Unix(c.ExpiresAt, 0).Sub(now) > m.renewSoon {
 			continue
 		}
-		if _, err := m.Renew(ctx, c.ID); err == nil {
+		_, nodeID, replaced, err := m.renew(ctx, c.ID)
+		if replaced {
+			reload[nodeID] = true
+		}
+		if err == nil {
 			renewed++
 		}
 	}

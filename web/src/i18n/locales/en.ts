@@ -1454,6 +1454,8 @@ const en = {
     issuingFor: "Issuing {{domain}}… (ACME validation, ~tens of seconds)",
     issueAction: "Issue",
     errDomainRequired: "Domain is required",
+    errDomainIncomplete: "Enter the full domain, e.g. s1.example.com. A bare prefix (like s1) or an IP address can't get a certificate.",
+    errPort80Busy: "Port 80 is held by {{proc}}, so HTTP validation can't work. Issue this certificate with DNS validation (dns-01) instead.",
     fieldDomain: "Domain",
     fieldEmail: "Email",
     fieldEmailHint: "Optional — falls back to the acme_email setting.",
