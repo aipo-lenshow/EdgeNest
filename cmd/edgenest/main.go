@@ -27,10 +27,12 @@ import (
 	"github.com/aipo-lenshow/EdgeNest/internal/control/health"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/notifyrunner"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/orchestrator"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/reality"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/timesync"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/updatecheck"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/wizard"
+	"github.com/aipo-lenshow/EdgeNest/internal/core"
 	"github.com/aipo-lenshow/EdgeNest/internal/core/nodeapi"
 	"github.com/aipo-lenshow/EdgeNest/internal/logredact"
 	"github.com/aipo-lenshow/EdgeNest/internal/node"
@@ -162,6 +164,14 @@ func runStandalone(cfg config.Config) {
 		}
 	})
 	cert.NewScheduler(certMgr, 0).Start(context.Background())
+
+	// Reality disguise: publish the cached neighbour scan, or run the first
+	// one in the background so new Reality inbounds borrow a site from the
+	// server's own network instead of a global brand.
+	{
+		cp := core.ReadNodeCapability(core.DefaultCapabilityPath)
+		reality.Init(st, reality.ServerIPv4(append([]string{cp.IPv4Addr}, cp.IPv4Addrs...)...), time.Minute)
+	}
 
 	// First-run wizard. Takes certMgr so a grey-cloud domain batch gets a real
 	// ACME cert instead of the bootstrap self-signed pair.

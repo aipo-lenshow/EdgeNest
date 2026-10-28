@@ -19,6 +19,7 @@ import (
 	"github.com/aipo-lenshow/EdgeNest/internal/control/cert"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/orchestrator"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/reality"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/system"
 	"github.com/aipo-lenshow/EdgeNest/internal/core"
@@ -178,11 +179,10 @@ func (w *Wizard) Complete(ctx context.Context, nodeID uint, req CompleteRequest)
 		req.VLESSPort = 8443
 	}
 	if req.VLESSDomain == "" {
-		// Reality borrows this host's TLS handshake as camouflage. www.apple.com
-		// (Akamai) is reliable and load-tolerant; www.microsoft.com (Azure Front
-		// Door) intermittently rejects the borrowed handshake from VPS IPs, which
-		// surfaces as "REALITY: processed invalid connection" for every client.
-		req.VLESSDomain = "www.apple.com"
+		// Reality borrows this host's TLS handshake as camouflage: a site in
+		// the server's own network when the neighbour scan found one, else
+		// reality.FallbackSNI.
+		req.VLESSDomain = reality.DefaultSNI()
 	}
 	if req.Hysteria2Port == 0 {
 		req.Hysteria2Port = 41020

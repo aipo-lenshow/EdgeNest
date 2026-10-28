@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, call } from "../api/client";
 import Layout from "../components/Layout";
 import AccelStatusNote from "../components/AccelStatusNote";
+import RealityTargetPicker from "../components/RealityTargetPicker";
 import { QRCodeSVG } from "qrcode.react";
 import { copyText } from "../lib/clipboard";
 import { EditUserModal, type UserRow } from "./MultiUser";
@@ -1002,7 +1003,23 @@ function ProtocolAdvancedForm({
         </Select>
       </Field>
     );
+  const isReality =
+    type === "vless" ||
+    (type === "vless-xhttp" && (advanced.security ?? "reality") === "reality");
+  const realityPicker = (editing = false) =>
+    isReality ? (
+      <RealityTargetPicker
+        value={advanced.sni ?? ""}
+        onPick={(d) => setField("sni", d)}
+        editing={editing}
+      />
+    ) : null;
   if (certOnly) {
+    // Editing keeps protocol settings as they are, except the certificate
+    // and a Reality inbound's disguise site.
+    if (isReality) {
+      return <div className="grid grid-cols-2 gap-4">{realityPicker(true)}</div>;
+    }
     const c = certSelect();
     return c ? <div className="grid grid-cols-2 gap-4">{c}</div> : null;
   }
@@ -1047,6 +1064,7 @@ function ProtocolAdvancedForm({
           <div className="col-span-2 text-xs text-white/50">
             {t("inbounds.advRealityAutofillNote")}
           </div>
+          {realityPicker()}
         </div>
       );
 
@@ -1085,6 +1103,7 @@ function ProtocolAdvancedForm({
               placeholder={t("inbounds.advXhttpHostPlaceholder")}
             />
           </Field>
+          {realityPicker()}
           {advanced.security === "tls" && (
             <>
               <Field

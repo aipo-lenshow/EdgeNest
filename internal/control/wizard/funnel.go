@@ -16,6 +16,7 @@ import (
 	"github.com/aipo-lenshow/EdgeNest/internal/control/antiblock"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/cert"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/model"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/reality"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/system"
 	"github.com/aipo-lenshow/EdgeNest/internal/core"
@@ -1110,10 +1111,9 @@ func mergeAdvancedOverrides(cur *model.AdvancedConfig, nodeID uint, ov *Advanced
 func sniFor(protoID, domain, vpsIP string) string {
 	switch protoID {
 	case "vless-reality", "vless-xhttp-reality":
-		// www.apple.com (Akamai) borrows reliably; www.microsoft.com (Azure Front
-		// Door) intermittently rejects Reality's borrowed handshake from VPS IPs,
-		// breaking every client with "REALITY: processed invalid connection".
-		return "www.apple.com"
+		// A site in the server's own network when the neighbour scan found
+		// one (see package reality), else reality.FallbackSNI.
+		return reality.DefaultSNI()
 	}
 	if domain != "" {
 		return domain

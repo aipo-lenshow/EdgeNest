@@ -15,12 +15,14 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/alerts"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/digest"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/notify"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/reality"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 	"github.com/aipo-lenshow/EdgeNest/internal/control/updatecheck"
 	"github.com/aipo-lenshow/EdgeNest/internal/core/nodeapi"
@@ -43,7 +45,18 @@ type Runner struct {
 	store  *store.Store
 	node   nodeapi.NodeClient
 	nodeID string
+
+	// Reality disguise checks run every realityCheckEvery, not every tick,
+	// and a target only alarms after realityFailsToAlarm misses in a row.
+	realityChecked time.Time
+	realityFails   map[string]int
+	checkTarget    func(ctx context.Context, host string, port int, sni string) error
 }
+
+const (
+	realityCheckEvery   = 30 * time.Minute
+	realityFailsToAlarm = 2
+)
 
 func New(s *store.Store, n nodeapi.NodeClient, nodeID string) *Runner {
 	return &Runner{store: s, node: n, nodeID: nodeID}
@@ -82,6 +95,7 @@ func (r *Runner) scan(ctx context.Context) {
 	det := alerts.NewDetector(r.store, r.nodeID)
 	cur := det.Attention(now, alerts.Default())
 	cur = append(cur, r.engineAlerts(ctx)...)
+	cur = append(cur, r.realityAlerts(ctx, time.Now())...)
 	if a, ok := r.updateAlert(); ok {
 		cur = append(cur, a)
 	}
@@ -149,6 +163,58 @@ func (r *Runner) engineAlerts(ctx context.Context) []alerts.Alert {
 	if xrN > 0 && !health.XrayRunning {
 		out = append(out, alerts.Alert{Kind: alerts.KindEngine, Target: "xray"})
 	}
+	return out
+}
+
+// realityAlerts checks every enabled Reality inbound's disguise site and flags
+// the ones that failed realityFailsToAlarm checks in a row. Between checks it
+// repeats the last verdict so an alarm doesn't clear and re-fire.
+func (r *Runner) realityAlerts(ctx context.Context, now time.Time) []alerts.Alert {
+	if r.realityFails == nil {
+		r.realityFails = map[string]int{}
+	}
+	if now.Sub(r.realityChecked) >= realityCheckEvery {
+		r.realityChecked = now
+		n, _ := strconv.ParseUint(r.nodeID, 10, 64)
+		inbounds, err := r.store.ListInbounds(uint(n))
+		if err != nil {
+			return nil
+		}
+		seen := map[string]bool{}
+		for _, in := range inbounds {
+			if !in.Enabled {
+				continue
+			}
+			var s map[string]any
+			_ = json.Unmarshal([]byte(in.Settings), &s)
+			t, ok := reality.TargetOf(in.Type, s)
+			if !ok || seen[t.SNI] {
+				continue
+			}
+			seen[t.SNI] = true
+			check := r.checkTarget
+			if check == nil {
+				check = reality.CheckTarget
+			}
+			if check(ctx, t.Host, t.Port, t.SNI) != nil {
+				r.realityFails[t.SNI]++
+			} else {
+				r.realityFails[t.SNI] = 0
+			}
+		}
+		for sni := range r.realityFails {
+			if !seen[sni] {
+				delete(r.realityFails, sni)
+			}
+		}
+	}
+	var out []alerts.Alert
+	for sni, fails := range r.realityFails {
+		if fails >= realityFailsToAlarm {
+			out = append(out, alerts.Alert{Kind: alerts.KindRealityTarget, Target: sni})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Target < out[j].Target })
 	return out
 }
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/auth"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/reality"
 )
 
 // Default paths for the wizard-generated self-signed certificate. Protocols
@@ -57,7 +58,7 @@ func autofillInboundSettings(typ string, s, existing map[string]any) (map[string
 			s["short_ids"] = []any{sid}
 		}
 		if !meaningful(s["sni"]) {
-			s["sni"] = "www.apple.com"
+			s["sni"] = reality.DefaultSNI()
 		}
 		if !meaningful(s["server_port_target"]) {
 			s["server_port_target"] = 443
@@ -88,7 +89,7 @@ func autofillInboundSettings(typ string, s, existing map[string]any) (map[string
 				s["short_ids"] = []any{sid}
 			}
 			if !meaningful(s["sni"]) {
-				s["sni"] = "www.apple.com"
+				s["sni"] = reality.DefaultSNI()
 			}
 		}
 		if !meaningful(s["xhttp_path"]) {

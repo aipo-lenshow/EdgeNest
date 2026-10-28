@@ -28,8 +28,11 @@ const (
 	// KindCertRenew: automatic renewal of a certificate is failing while it is
 	// in the renewal window but not yet close enough for KindCert.
 	KindCertRenew Kind = "cert_renew"
-	KindEngine    Kind = "engine" // a proxy engine that serves inbounds is offline
-	KindUpdate    Kind = "update" // a newer EdgeNest release is available (Target = version)
+	// KindRealityTarget: the site a Reality inbound impersonates stopped
+	// answering, so every client of that inbound fails (Target = the SNI).
+	KindRealityTarget Kind = "reality_target"
+	KindEngine        Kind = "engine" // a proxy engine that serves inbounds is offline
+	KindUpdate        Kind = "update" // a newer EdgeNest release is available (Target = version)
 )
 
 // Thresholds bound the "needs attention" detection. Defaults are deliberately
@@ -237,6 +240,10 @@ func Line(a Alert, lang string) string {
 		return "• " + tr(lang, "证书 ", "cert ") + a.Target + expiresIn(a.Days, lang)
 	case KindCertRenew:
 		return "• " + tr(lang, "证书 ", "cert ") + a.Target + tr(lang, " 自动续签失败", " auto-renewal failing") + expiresIn(a.Days, lang)
+	case KindRealityTarget:
+		return "• " + tr(lang,
+			"Reality 伪装目标 "+a.Target+" 连不上，使用它的节点都会失效。请到入站页换一个伪装目标",
+			"Reality disguise "+a.Target+" is unreachable, so its nodes fail. Pick another disguise on the Inbounds page")
 	case KindEngine:
 		return "• " + a.Target + tr(lang, " 引擎已掉线", " engine offline")
 	case KindUpdate:
