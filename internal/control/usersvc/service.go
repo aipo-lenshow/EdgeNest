@@ -290,6 +290,66 @@ func (s *Service) Update(ctx context.Context, nodeID uint, email string, p Updat
 	return &UpdateResult{Email: finalEmail, Clients: len(clients)}, nil
 }
 
+// AddToInboundResult is the outcome of AddToInbound.
+type AddToInboundResult struct {
+	Added   []string `json:"added"`
+	Already []string `json:"already"` // already on the inbound
+	Unknown []string `json:"unknown"` // no such user
+}
+
+// AddToInbound puts every listed user on one more inbound, the way ticking it
+// in each user's edit dialog would: credentials mirror the inbound's shape,
+// quota / expiry / enabled follow the user's other inbounds, and the user's
+// bundle subscription is widened to include it. Applies once at the end.
+func (s *Service) AddToInbound(ctx context.Context, nodeID, inboundID uint, emails []string) (*AddToInboundResult, error) {
+	ib, err := s.Store.GetInbound(inboundID)
+	if err != nil || ib == nil {
+		return nil, errf("NOT_FOUND", "inbound not found")
+	}
+	if skipForMultiUser(ib.Type) {
+		return nil, errf("UNSUPPORTED", "this protocol does not support per-user accounts")
+	}
+	res := &AddToInboundResult{Added: []string{}, Already: []string{}, Unknown: []string{}}
+	seen := map[string]bool{}
+	for _, email := range emails {
+		email = strings.TrimSpace(email)
+		if email == "" || seen[email] {
+			continue
+		}
+		seen[email] = true
+		cur, err := s.Store.ClientsByEmail(email)
+		if err != nil {
+			return nil, errf("DB_ERROR", err.Error())
+		}
+		if len(cur) == 0 {
+			res.Unknown = append(res.Unknown, email)
+			continue
+		}
+		ids := []uint{inboundID}
+		on := false
+		for _, cl := range cur {
+			ids = append(ids, cl.InboundID)
+			on = on || cl.InboundID == inboundID
+		}
+		if on {
+			res.Already = append(res.Already, email)
+			continue
+		}
+		if err := s.reconcileUserInbounds(email, ids, nodeID); err != nil {
+			return nil, errf("MEMBERSHIP", err.Error())
+		}
+		res.Added = append(res.Added, email)
+	}
+	if len(res.Added) > 0 {
+		if err := s.apply(ctx, nodeID); err != nil {
+			return nil, errf("APPLY_FAILED", err.Error())
+		}
+		s.audit("inbound.add_users", "inbound:"+strconv.Itoa(int(inboundID)),
+			map[string]string{"count": strconv.Itoa(len(res.Added))})
+	}
+	return res, nil
+}
+
 // DeleteResult is the outcome of a successful delete.
 type DeleteResult struct {
 	Email          string
@@ -355,8 +415,14 @@ func (s *Service) reconcileUserInbounds(email string, targetIDs []uint, nodeID u
 	}
 	curByInbound := map[uint]model.Client{}
 	var quota, expiry int64
+	// A user switched off (by hand or by enforcement) stays off on inbounds
+	// added later; only a brand-new user starts enabled.
+	enabled := len(cur) == 0
 	for _, cl := range cur {
 		curByInbound[cl.InboundID] = cl
+		if cl.Enabled {
+			enabled = true
+		}
 		if cl.QuotaBytes > quota {
 			quota = cl.QuotaBytes
 		}
@@ -373,7 +439,9 @@ func (s *Service) reconcileUserInbounds(email string, targetIDs []uint, nodeID u
 		if ib == nil || skipForMultiUser(ib.Type) {
 			continue
 		}
-		if err := s.Store.CreateClient(newClientForInbound(ib, email, quota, expiry)); err != nil {
+		cl := newClientForInbound(ib, email, quota, expiry)
+		cl.Enabled = enabled
+		if err := s.Store.CreateClient(cl); err != nil {
 			return err
 		}
 	}

@@ -69,6 +69,7 @@ func (h *Handler) NewRouter() *gin.Engine {
 		authed.GET("/inbounds/:id", h.GetInbound)
 		authed.PUT("/inbounds/:id", h.UpdateInbound)
 		authed.DELETE("/inbounds/:id", h.DeleteInbound)
+		authed.POST("/inbounds/:id/users", h.AddUsersToInbound)
 		authed.GET("/reality/neighbors", h.GetRealityNeighbors)
 		authed.POST("/reality/neighbors/scan", h.ScanRealityNeighbors)
 

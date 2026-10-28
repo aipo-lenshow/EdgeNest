@@ -56,7 +56,7 @@ func userSvcStatus(code string) int {
 		return http.StatusUnprocessableEntity
 	case "NOT_FOUND":
 		return http.StatusNotFound
-	case "BAD_REQUEST":
+	case "BAD_REQUEST", "UNSUPPORTED":
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
@@ -240,4 +240,31 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 		return
 	}
 	core.OK(c, gin.H{"email": res.Email, "deleted_clients": res.DeletedClients})
+}
+
+type addUsersToInboundRequest struct {
+	Emails []string `json:"emails"`
+}
+
+// AddUsersToInbound puts the listed users on one more inbound (e.g. a new Argo
+// or CDN inbound for everyone at once). Users already on it are reported, not
+// duplicated.
+//
+// POST /api/v1/inbounds/:id/users
+func (h *Handler) AddUsersToInbound(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req addUsersToInboundRequest
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Emails) == 0 {
+		core.Fail(c, http.StatusBadRequest, "BAD_REQUEST", "emails required")
+		return
+	}
+	res, err := h.userSvc(c).AddToInbound(c.Request.Context(), h.parseLocalNodeID(), id, req.Emails)
+	if err != nil {
+		failUserSvc(c, err)
+		return
+	}
+	core.OK(c, res)
 }

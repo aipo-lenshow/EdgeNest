@@ -6,6 +6,7 @@ import { api, call } from "../api/client";
 import Layout from "../components/Layout";
 import AccelStatusNote from "../components/AccelStatusNote";
 import RealityTargetPicker from "../components/RealityTargetPicker";
+import AddUsersToInboundModal from "../components/AddUsersToInboundModal";
 import { QRCodeSVG } from "qrcode.react";
 import { copyText } from "../lib/clipboard";
 import { EditUserModal, type UserRow } from "./MultiUser";
@@ -183,6 +184,7 @@ export default function InboundsPage({ embedded = false }: { embedded?: boolean 
   // 快速 / 场景 / 完整 chooser). InboundFormModal only renders for edit now.
   const [editingID, setEditingID] = useState<number | null>(null);
   const [clientsFor, setClientsFor] = useState<Inbound | null>(null);
+  const [addUsersFor, setAddUsersFor] = useState<Inbound | null>(null);
   const [rowErr, setRowErr] = useState<{ id: number; msg: string } | null>(null);
   const [pendingDeleteInbound, setPendingDeleteInbound] = useState<Inbound | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -503,6 +505,14 @@ export default function InboundsPage({ embedded = false }: { embedded?: boolean 
                     count: ib.clients?.length ?? 0,
                   })}
                 </Button>
+                {ib.type !== "shadowsocks" && ib.type !== "socks" && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAddUsersFor(ib)}
+                  >
+                    {t("inbounds.addUsersBtn")}
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   onClick={() => setEditingID(ib.id)}
@@ -544,6 +554,12 @@ export default function InboundsPage({ embedded = false }: { embedded?: boolean 
         <ClientsModal
           inbound={clientsFor}
           onClose={() => setClientsFor(null)}
+        />
+      )}
+      {addUsersFor && (
+        <AddUsersToInboundModal
+          inbound={addUsersFor}
+          onClose={() => setAddUsersFor(null)}
         />
       )}
       <ConfirmDialog
