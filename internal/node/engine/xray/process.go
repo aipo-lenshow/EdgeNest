@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aipo-lenshow/EdgeNest/internal/logcap"
 	"github.com/aipo-lenshow/EdgeNest/internal/logredact"
 )
 
@@ -27,7 +28,7 @@ const (
 
 type process struct {
 	cmd      *exec.Cmd
-	logFile  *os.File
+	logFile  *logcap.File
 	stopOnce sync.Once
 	done     chan struct{}
 	waitErr  error
@@ -88,7 +89,7 @@ func (e *Engine) startLocked() error {
 	}
 	_ = os.MkdirAll(e.logDir, 0o750)
 	logPath := filepath.Join(e.logDir, "xray.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
+	logFile, err := logcap.Open(logPath)
 	if err != nil {
 		logFile = nil
 	}

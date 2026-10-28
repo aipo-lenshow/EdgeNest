@@ -14,8 +14,9 @@ import (
 // engineLogFiles are the per-engine log files written under DataDir. Both are
 // opened O_APPEND by the running engine; truncating to 0 is safe while the fd
 // is held (the next append writes at offset 0, no sparse hole) so no restart is
-// needed and sing-box.json is never touched.
-var engineLogFiles = []string{"sing-box.log", "xray.log"}
+// needed and sing-box.json is never touched. The ".1" files are the previous
+// generation kept by size-based rotation (internal/logcap).
+var engineLogFiles = []string{"sing-box.log", "sing-box.log.1", "xray.log", "xray.log.1"}
 
 // ClearLogs truncates the engine log files in place. A privacy / housekeeping
 // action: self-hosters who don't want their users' source IPs (or any history)
