@@ -2,6 +2,7 @@ package cdnstats
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -72,6 +73,22 @@ func TestSummariseRanksReliableFastFirst(t *testing.T) {
 	down := Summarise([]store.CDNStatTotal{row("CN|移动|华南", "1.1.1.1", 9, 0, 0)})
 	if !down[0].CDNDown {
 		t.Fatal("nothing answers after many tries: want CDN marked down there")
+	}
+}
+
+func TestSummariseSortsUnrankedByRateThenSpeed(t *testing.T) {
+	nets := Summarise([]store.CDNStatTotal{
+		row("CN|联通|北方", "1.1.1.1", 1, 1, 670),
+		row("CN|联通|北方", "1.1.1.2", 1, 1, 548),
+		row("CN|联通|北方", "1.1.1.3", 1, 0, 0),
+		row("CN|联通|北方", "1.1.1.4", 1, 1, 600),
+	})
+	var got []string
+	for _, a := range nets[0].Addrs {
+		got = append(got, a.IP)
+	}
+	if fmt.Sprint(got) != "[1.1.1.2 1.1.1.4 1.1.1.1 1.1.1.3]" {
+		t.Fatalf("order %v", got)
 	}
 }
 

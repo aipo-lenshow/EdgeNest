@@ -214,10 +214,14 @@ func Summarise(rows []store.CDNStatTotal) []Network {
 			if a.Ranked != b.Ranked {
 				return a.Ranked
 			}
-			if a.Ranked {
-				return a.AvgMs < b.AvgMs
+			if !a.Ranked && a.OKRate != b.OKRate {
+				return a.OKRate > b.OKRate
 			}
-			return a.OKRate > b.OKRate
+			// Answered addresses fastest first; ones that never answered last.
+			if (a.AvgMs > 0) != (b.AvgMs > 0) {
+				return a.AvgMs > 0
+			}
+			return a.AvgMs < b.AvgMs
 		})
 		answered := false
 		for _, a := range n.Addrs {

@@ -49,6 +49,7 @@ const shownPerNetwork = 5;
 // they never go through the page's engine-reapplying Save.
 export default function CdnInsights() {
   const { t, i18n } = useTranslation();
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const nets = useQuery({
     queryKey: ["cdn-networks"],
     queryFn: () => call<NetworksResp>(api.get("/advanced/cdn/networks")),
@@ -99,7 +100,11 @@ export default function CdnInsights() {
                 </span>
                 <code className="text-xs text-white/40">{n.key}</code>
                 <span className="ml-auto text-xs text-white/40">
-                  {t("advanced.cdnNetSamples", { n: n.samples })} ·{" "}
+                  {t("advanced.cdnNetSummary", {
+                    addrs: n.addrs.length,
+                    n: n.samples,
+                  })}{" "}
+                  ·{" "}
                   {t("advanced.cdnNetUpdated", { t: fmtTime(n.updated_at) })}
                 </span>
               </div>
@@ -109,7 +114,10 @@ export default function CdnInsights() {
                 </div>
               )}
               <div className="space-y-1">
-                {n.addrs.slice(0, shownPerNetwork).map((a, i) => (
+                {(expanded[n.key]
+                  ? n.addrs
+                  : n.addrs.slice(0, shownPerNetwork)
+                ).map((a, i) => (
                   <div
                     key={a.ip}
                     className="flex flex-wrap items-center justify-between gap-2 text-sm"
@@ -128,7 +136,7 @@ export default function CdnInsights() {
                           p: Math.round(a.ok_rate * 100),
                         })}
                       </span>
-                      <span>{t("advanced.cdnNetSamples", { n: a.samples })}</span>
+                      <span>{t("advanced.cdnAddrTries", { n: a.samples })}</span>
                       {a.avg_ms > 0 && (
                         <Badge
                           tone={
@@ -146,6 +154,19 @@ export default function CdnInsights() {
                   </div>
                 ))}
               </div>
+              {n.addrs.length > shownPerNetwork && (
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-emerald-300 hover:text-emerald-200"
+                  onClick={() =>
+                    setExpanded({ ...expanded, [n.key]: !expanded[n.key] })
+                  }
+                >
+                  {expanded[n.key]
+                    ? t("advanced.cdnShowLess")
+                    : t("advanced.cdnShowAll", { n: n.addrs.length })}
+                </button>
+              )}
               {!n.addrs.some((a) => a.ranked) && !n.cdn_down && (
                 <div className="mt-2 text-xs text-white/40">
                   {t("advanced.cdnNetNotRanked")}
