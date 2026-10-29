@@ -58,6 +58,9 @@ type Poller struct {
 	// periodic enforce tick. Must be cheap and non-blocking — it runs inline in
 	// the poll goroutine.
 	onCredited func(context.Context)
+	// lastPrune is when the per-day buckets were last trimmed to
+	// dailyRetentionMonths; zero until the first prune at Run start.
+	lastPrune time.Time
 }
 
 // OnCredited registers a callback fired at the end of any tick that wrote
@@ -88,6 +91,7 @@ func New(sources []Source, st *store.Store, interval time.Duration) *Poller {
 // a failed sample (engine restarting, stats service not up yet, engine not
 // installed) is skipped for that source, never fatal.
 func (p *Poller) Run(ctx context.Context) {
+	p.pruneDaily(time.Now())
 	t := time.NewTicker(p.interval)
 	defer t.Stop()
 	for {
@@ -96,7 +100,25 @@ func (p *Poller) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			p.tick(ctx)
+			p.pruneDaily(time.Now())
 		}
+	}
+}
+
+// dailyRetentionMonths is how long per-day traffic buckets are kept: enough
+// for a year of month-by-month history plus the month in progress.
+const dailyRetentionMonths = 13
+
+// pruneDaily trims per-day buckets older than the retention window, at most
+// once a day. A failure is logged and retried on the next day's pass.
+func (p *Poller) pruneDaily(now time.Time) {
+	if !p.lastPrune.IsZero() && now.Sub(p.lastPrune) < 24*time.Hour {
+		return
+	}
+	p.lastPrune = now
+	cutoff := now.In(p.displayLocation()).AddDate(0, -dailyRetentionMonths, 0).Format("2006-01-02")
+	if err := p.store.PruneDailyBefore(cutoff); err != nil {
+		log.Printf("trafficpoller: warn: prune daily traffic before %s: %v", cutoff, err)
 	}
 }
 

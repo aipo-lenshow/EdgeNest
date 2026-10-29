@@ -284,6 +284,10 @@ type CDNStatDaily struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
+// TableName pins the table name; GORM's default splits the "CDN" acronym
+// into "c_dnstat_dailies".
+func (CDNStatDaily) TableName() string { return "cdn_stat_dailies" }
+
 // JoinToken is reserved for Platform (v2) node enrollment. Table created in v1.
 type JoinToken struct {
 	ID        uint   `gorm:"primaryKey" json:"id"`

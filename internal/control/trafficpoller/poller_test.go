@@ -178,3 +178,34 @@ func TestPoller_TwoSourcesSumPerEmail(t *testing.T) {
 		t.Fatalf("after tick2 used=%d want 3210 (singbox restart must not corrupt xray)", got)
 	}
 }
+
+func TestPoller_PrunesDailyBucketsPastRetentionOncePerDay(t *testing.T) {
+	st := openTestStore(t)
+	if err := st.SetSetting("display_tz", "UTC"); err != nil {
+		t.Fatal(err)
+	}
+	for _, day := range []string{"2025-09-29", "2025-09-30", "2026-10-29"} {
+		if err := st.AddDailyTraffic(day, "a@x", 1, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := New(nil, st, time.Minute)
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	p.pruneDaily(now)
+	if up, _, _ := st.UserTrafficSince("a@x", "2000-01-01"); up != 2 {
+		t.Fatalf("after prune %d buckets' bytes left, want the 2 inside 13 months", up)
+	}
+	if err := st.AddDailyTraffic("2020-01-01", "a@x", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	p.pruneDaily(now.Add(time.Hour))
+	if up, _, _ := st.UserTrafficSince("a@x", "2000-01-01"); up != 3 {
+		t.Fatal("pruned twice within a day")
+	}
+	// A day later the cutoff is 2025-10-01 (Oct 31 minus 13 months rolls
+	// over), so only the 2026-10-29 bucket remains.
+	p.pruneDaily(now.Add(25 * time.Hour))
+	if up, _, _ := st.UserTrafficSince("a@x", "2000-01-01"); up != 1 {
+		t.Fatalf("next day's prune: %d left, want 1", up)
+	}
+}
