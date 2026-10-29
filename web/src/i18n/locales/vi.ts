@@ -1288,7 +1288,7 @@ const vi = {
     cdnPreferOneLead:
       "Khuyến nghị: 3–6 IP ưu tiên thuộc các dải khác nhau.",
     cdnPreferOneTip:
-      "Inbound qua reverse proxy / Argo: mỗi IP ưu tiên trở thành một node riêng trong gói đăng ký (hậu tố -CF1, -CF2…, tối đa 8), và client của từng người dùng tự chọn node nhanh nhất trên mạng của họ. Inbound CDN trực tiếp: mỗi người dùng được gán cố định một địa chỉ trong pool. Trải đều nhiều dải cũng giúp tránh việc một địa chỉ bị giới hạn tốc độ hoặc bị chặn làm mọi người mất kết nối.",
+      "Inbound qua reverse proxy / Argo: mỗi IP ưu tiên trở thành một node riêng trong gói đăng ký (hậu tố -CF1, -CF2…, tối đa 8), và client của từng người dùng tự chọn node nhanh nhất trên mạng của họ. Inbound CDN trực tiếp: mỗi người dùng được gán cố định một địa chỉ trong pool. Trải đều nhiều dải cũng giúp tránh việc một địa chỉ bị giới hạn tốc độ hoặc không truy cập được làm mọi người mất kết nối.",
     cdnRefreshCandidates: "Làm mới pool ứng viên",
     cdnRefreshing: "Đang làm mới…",
     cdnRefreshTip:

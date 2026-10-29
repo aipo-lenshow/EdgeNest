@@ -1288,7 +1288,7 @@ const en = {
     cdnPreferOneLead:
       "Recommended: 3–6 preferred IPs from different ranges.",
     cdnPreferOneTip:
-      "Reverse-proxy / Argo inbounds: every preferred IP becomes its own node in the subscription (suffixed -CF1, -CF2…, up to 8), and each user's client picks whichever is fastest on their own network. Direct CDN inbounds: each user is pinned to one address from the pool. Spreading across ranges also keeps one rate-limited or blocked address from taking everyone down.",
+      "Reverse-proxy / Argo inbounds: every preferred IP becomes its own node in the subscription (suffixed -CF1, -CF2…, up to 8), and each user's client picks whichever is fastest on their own network. Direct CDN inbounds: each user is pinned to one address from the pool. Spreading across ranges also keeps one rate-limited or unreachable address from taking everyone down.",
     cdnRefreshCandidates: "Try other test addresses",
     cdnRefreshing: "Refreshing…",
     cdnRefreshTip: "Only swaps the addresses this page's server-side test uses; the candidate list sent to clients does not change.",
