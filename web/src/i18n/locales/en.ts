@@ -1307,7 +1307,7 @@ const en = {
     cdnShowLess: "Show less",
     cdnNetUpdated: "updated {{t}}",
     cdnNetDown: "CDN is unreachable from this network; it relies on nodes that don't go through Cloudflare",
-    cdnNetNotRanked: "Not enough samples to recommend yet",
+    cdnNetNotRanked: "No address to recommend yet: an address is recommended to new users on this network once it has been tested {{min}} times here with at least {{rate}}% success (most tests so far: {{max}}).",
     cdnOkRate: "{{p}}% success",
     cardCdnCandidates: "Candidates sent to clients",
     cdnCandidatesIntro: "Clients probe these addresses and pick from them. 'Default' = the default addresses above; 'Built-in' = addresses shipped with the server and verified on user networks. The number is how many networks rank it.",

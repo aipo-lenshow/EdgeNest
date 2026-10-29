@@ -169,7 +169,11 @@ export default function CdnInsights() {
               )}
               {!n.addrs.some((a) => a.ranked) && !n.cdn_down && (
                 <div className="mt-2 text-xs text-white/40">
-                  {t("advanced.cdnNetNotRanked")}
+                  {t("advanced.cdnNetNotRanked", {
+                    min: 3,
+                    rate: 80,
+                    max: Math.max(...n.addrs.map((a) => a.samples)),
+                  })}
                 </div>
               )}
             </div>

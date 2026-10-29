@@ -1303,7 +1303,7 @@ const zh = {
     cdnShowLess: "收起",
     cdnNetUpdated: "{{t}} 更新",
     cdnNetDown: "这个网络连不上 CDN，要靠不走 Cloudflare 的节点",
-    cdnNetNotRanked: "样本还不够，暂不推荐",
+    cdnNetNotRanked: "还没有可推荐的地址：一个地址要在这个网络里测满 {{min}} 次、成功率 {{rate}}% 以上，才会推荐给同网络的新用户（目前最多测了 {{max}} 次）。",
     cdnOkRate: "成功率 {{p}}%",
     cardCdnCandidates: "发给客户端的候选池",
     cdnCandidatesIntro: "客户端从这些地址里测速挑选。「默认」= 上面的默认地址，「内置」= 程序自带、在用户网络里验证过的地址；后面的数字是它在几个网络里排进推荐。",

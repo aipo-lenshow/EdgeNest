@@ -1301,7 +1301,7 @@ const zhTW = {
     cdnShowLess: "收起",
     cdnNetUpdated: "{{t}} 更新",
     cdnNetDown: "這個網路連不上 CDN，要靠不走 Cloudflare 的節點",
-    cdnNetNotRanked: "樣本還不夠，暫不推薦",
+    cdnNetNotRanked: "還沒有可推薦的位址：一個位址要在這個網路裡測滿 {{min}} 次、成功率 {{rate}}% 以上，才會推薦給同網路的新使用者（目前最多測了 {{max}} 次）。",
     cdnOkRate: "成功率 {{p}}%",
     cardCdnCandidates: "發給用戶端的候選池",
     cdnCandidatesIntro: "用戶端從這些位址裡測速挑選。「預設」= 上面的預設位址，「內建」= 程式自帶、在使用者網路裡驗證過的位址；後面的數字是它在幾個網路裡排進推薦。",

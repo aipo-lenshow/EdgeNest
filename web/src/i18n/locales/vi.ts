@@ -1308,7 +1308,7 @@ const vi = {
     cdnShowLess: "Thu gọn",
     cdnNetUpdated: "cập nhật {{t}}",
     cdnNetDown: "Mạng này không tới được CDN; phải dùng các nút không đi qua Cloudflare",
-    cdnNetNotRanked: "Chưa đủ mẫu để đề xuất",
+    cdnNetNotRanked: "Chưa có địa chỉ để đề xuất: một địa chỉ được đề xuất cho người dùng mới trên mạng này sau {{min}} lần đo tại đây với tỉ lệ thành công từ {{rate}}% (nhiều nhất hiện có: {{max}} lần).",
     cdnOkRate: "thành công {{p}}%",
     cardCdnCandidates: "Danh sách ứng viên gửi cho ứng dụng",
     cdnCandidatesIntro: "Ứng dụng đo các địa chỉ này và chọn trong đó. 'Mặc định' = địa chỉ mặc định ở trên; 'Có sẵn' = địa chỉ đi kèm máy chủ, đã kiểm chứng trên mạng người dùng. Con số là số mạng xếp nó vào đề xuất.",
