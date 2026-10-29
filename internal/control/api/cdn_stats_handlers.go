@@ -161,6 +161,28 @@ func (h *Handler) CDNNetworks(c *gin.Context) {
 	})
 }
 
+// DeleteCDNNetwork removes what clients pooled for one network — all of it,
+// or only one address when ip is given — so a bad stretch of data (a device
+// that misnamed its network, a test) can be cleared without waiting out the
+// retention window.
+//
+// DELETE /api/v1/advanced/cdn/networks?net=<key>[&ip=<address>]
+func (h *Handler) DeleteCDNNetwork(c *gin.Context) {
+	net := strings.TrimSpace(c.Query("net"))
+	ip := strings.TrimSpace(c.Query("ip"))
+	if !cdnstats.ValidNetKey(net) {
+		core.Fail(c, http.StatusBadRequest, "BAD_NET", "unknown network key")
+		return
+	}
+	n, err := h.store.DeleteCDNStats(net, ip)
+	if err != nil {
+		core.Fail(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	h.auditLog(c, "advanced.cdn.delete_stats", "advanced", map[string]string{"net": net, "ip": ip, "rows": intStr(int(n))})
+	core.OK(c, gin.H{"deleted": n})
+}
+
 // GetCDNPolicy returns the manual re-optimise policy.
 //
 // GET /api/v1/advanced/cdn/policy

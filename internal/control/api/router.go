@@ -155,6 +155,7 @@ func (h *Handler) NewRouter() *gin.Engine {
 		authed.POST("/advanced/cdn/candidates/refresh", h.CDNRefreshCandidates)
 		authed.POST("/advanced/cdn/speedtest", h.CDNSpeedtest)
 		authed.GET("/advanced/cdn/networks", h.CDNNetworks)
+		authed.DELETE("/advanced/cdn/networks", h.DeleteCDNNetwork)
 		authed.GET("/advanced/cdn/policy", h.GetCDNPolicy)
 		authed.PUT("/advanced/cdn/policy", h.PutCDNPolicy)
 		// Granular per-feature saves so the inbound page's CDN / Argo / QUIC tabs

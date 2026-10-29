@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, call } from "../api/client";
-import { Badge, Button, Card, ErrorText, Field, Input } from "./ui";
+import { Badge, Button, Card, ConfirmDialog, ErrorText, Field, Input } from "./ui";
 
 interface AddrStat {
   ip: string;
@@ -50,6 +50,17 @@ const shownPerNetwork = 5;
 export default function CdnInsights() {
   const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // What the confirm dialog will delete: a whole network, or one address on it.
+  const [pendingDel, setPendingDel] = useState<{ net: string; label: string; ip?: string } | null>(null);
+  const qc = useQueryClient();
+  const del = useMutation({
+    mutationFn: (d: { net: string; ip?: string }) =>
+      call(api.delete("/advanced/cdn/networks", { params: { net: d.net, ip: d.ip ?? "" } })),
+    onSuccess: () => {
+      setPendingDel(null);
+      qc.invalidateQueries({ queryKey: ["cdn-networks"] });
+    },
+  });
   const nets = useQuery({
     queryKey: ["cdn-networks"],
     queryFn: () => call<NetworksResp>(api.get("/advanced/cdn/networks")),
@@ -99,6 +110,13 @@ export default function CdnInsights() {
                   {n.label || n.key}
                 </span>
                 <code className="text-xs text-white/40">{n.key}</code>
+                <button
+                  type="button"
+                  className="text-xs text-red-300/80 hover:text-red-300"
+                  onClick={() => setPendingDel({ net: n.key, label: n.label || n.key })}
+                >
+                  {t("advanced.cdnNetClear")}
+                </button>
                 <span className="ml-auto text-xs text-white/40">
                   {t("advanced.cdnNetSummary", {
                     addrs: n.addrs.length,
@@ -150,6 +168,14 @@ export default function CdnInsights() {
                           {a.avg_ms} ms
                         </Badge>
                       )}
+                      <button
+                        type="button"
+                        title={t("advanced.cdnAddrDelete")}
+                        className="text-white/30 hover:text-red-300"
+                        onClick={() => setPendingDel({ net: n.key, label: n.label || n.key, ip: a.ip })}
+                      >
+                        ×
+                      </button>
                     </span>
                   </div>
                 ))}
@@ -210,6 +236,27 @@ export default function CdnInsights() {
       )}
 
       <CdnPolicyCard />
+
+      <ConfirmDialog
+        open={pendingDel !== null}
+        title={pendingDel?.ip ? t("advanced.cdnAddrDelete") : t("advanced.cdnNetClear")}
+        body={
+          <div className="space-y-2 text-sm">
+            <p>
+              {pendingDel?.ip
+                ? t("advanced.cdnAddrDeleteBody", { ip: pendingDel.ip, net: pendingDel.label })
+                : t("advanced.cdnNetClearBody", { net: pendingDel?.label ?? "" })}
+            </p>
+            {del.error && <ErrorText>{(del.error as Error).message}</ErrorText>}
+          </div>
+        }
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        busy={del.isPending}
+        onConfirm={() => pendingDel && del.mutate({ net: pendingDel.net, ip: pendingDel.ip })}
+        onCancel={() => setPendingDel(null)}
+      />
     </>
   );
 }

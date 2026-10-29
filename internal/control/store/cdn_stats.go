@@ -71,6 +71,17 @@ func (s *Store) CDNStatsSince(sinceDay, netKey string) ([]CDNStatTotal, error) {
 	return out, err
 }
 
+// DeleteCDNStats deletes a network's pooled results, or one address's on it
+// when ip is not empty, across all days. Returns rows removed.
+func (s *Store) DeleteCDNStats(netKey, ip string) (int64, error) {
+	q := s.db.Where("net_key = ?", netKey)
+	if ip != "" {
+		q = q.Where("ip = ?", ip)
+	}
+	res := q.Delete(&model.CDNStatDaily{})
+	return res.RowsAffected, res.Error
+}
+
 // PruneCDNStatsBefore deletes buckets older than day (exclusive).
 func (s *Store) PruneCDNStatsBefore(day string) (int64, error) {
 	res := s.db.Where("day < ?", day).Delete(&model.CDNStatDaily{})

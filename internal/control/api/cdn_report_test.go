@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -172,5 +173,35 @@ func TestSubscription_PercentEncodedNetworkHeader(t *testing.T) {
 	}
 	if got := fetchSubHeaders(t, h, token, "CN%7C%E8%81%94%E9%80%9A%7C%E5%8C%97%E6%96%B9")["X-EdgeNest-CDN-Recommended"]; got != "188.114.96.31" {
 		t.Fatalf("percent-encoded key: recommended %q", got)
+	}
+}
+
+func TestDeleteCDNNetwork_WholeNetworkOrOneAddress(t *testing.T) {
+	h := newAdvancedTestHandler(t)
+	day := cdnstats.Day(time.Now())
+	_ = h.store.AddCDNSamples(day, "CN|联通|北方", "L", []store.CDNSample{{IP: "1.1.1.1", OK: true, Ms: 1}, {IP: "1.1.1.2", OK: true, Ms: 1}})
+	_ = h.store.AddCDNSamples(day, "TH|AS131445", "T", []store.CDNSample{{IP: "1.1.1.1", OK: true, Ms: 1}})
+	del := func(q string) int {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("DELETE", "/api/v1/advanced/cdn/networks?"+q, nil)
+		h.DeleteCDNNetwork(c)
+		return w.Code
+	}
+	if code := del("net=nope"); code != 400 {
+		t.Fatalf("bad key: %d", code)
+	}
+	if code := del("net=" + url.QueryEscape("CN|联通|北方") + "&ip=1.1.1.2"); code != 200 {
+		t.Fatalf("one address: %d", code)
+	}
+	rows, _ := h.store.CDNStatsSince("2000-01-01", "CN|联通|北方")
+	if len(rows) != 1 || rows[0].IP != "1.1.1.1" {
+		t.Fatalf("after deleting one address: %+v", rows)
+	}
+	if code := del("net=" + url.QueryEscape("CN|联通|北方")); code != 200 {
+		t.Fatalf("whole network: %d", code)
+	}
+	if rows, _ := h.store.CDNStatsSince("2000-01-01", ""); len(rows) != 1 || rows[0].NetKey != "TH|AS131445" {
+		t.Fatalf("other networks must stay: %+v", rows)
 	}
 }
