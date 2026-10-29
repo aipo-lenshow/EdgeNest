@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/share"
 	"net/http"
 	"strings"
 
@@ -85,9 +86,7 @@ func (h *Handler) PutAdvanced(c *gin.Context) {
 		}
 	}
 	if body.CDNEnabled && countNonBlank(body.CDNPreferredIPs) == 0 {
-		core.Fail(c, http.StatusBadRequest, "CDN_NO_IPS",
-			"启用 CDN 前置时优选 IP 池不能为空,请先添加至少一个优选 IP/域名")
-		return
+		body.CDNPreferredIPs = share.RecommendedCDNIPs()
 	}
 	nodeID := h.parseLocalNodeID()
 
@@ -170,13 +169,12 @@ func (h *Handler) PutAdvancedCDN(c *gin.Context) {
 		core.Fail(c, http.StatusBadRequest, "BAD_BODY", err.Error())
 		return
 	}
-	// Enabling CDN front with an empty preferred-IP pool is a no-op trap: the
-	// resolver has nothing to swap the server address to, so clients dial the
-	// inbound's real host and "CDN on" silently does nothing. Reject it.
+	// Enabling CDN front with an empty preferred-IP pool would leave the
+	// resolver nothing to swap the server address to, so "CDN on" would
+	// silently do nothing. Start from the default pool instead; EdgeNest
+	// clients re-point at what they measure from their own network.
 	if body.CDNEnabled && countNonBlank(body.CDNPreferredIPs) == 0 {
-		core.Fail(c, http.StatusBadRequest, "CDN_NO_IPS",
-			"启用 CDN 前置时优选 IP 池不能为空,请先添加至少一个优选 IP/域名")
-		return
+		body.CDNPreferredIPs = share.RecommendedCDNIPs()
 	}
 	nodeID := h.parseLocalNodeID()
 	a := h.loadOrNewAdvanced(nodeID)

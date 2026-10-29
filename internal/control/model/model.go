@@ -266,6 +266,24 @@ type TrafficDaily struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
+// CDNStatDaily aggregates EdgeNest clients' Cloudflare-address probe results
+// per network and day: how often an address was tried from that network, how
+// often it answered, and the summed latency of the answers. It carries nothing
+// about who reported — no subscription, device or reporter address — so the
+// rows stay anonymous and outlive no one's deletion. Pruned after the
+// retention window (cdnstats.Pruner).
+type CDNStatDaily struct {
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Day       string `gorm:"uniqueIndex:idx_cdnstat_day_net_ip;not null" json:"day"` // YYYY-MM-DD, UTC
+	NetKey    string `gorm:"uniqueIndex:idx_cdnstat_day_net_ip;not null" json:"net_key"`
+	IP        string `gorm:"uniqueIndex:idx_cdnstat_day_net_ip;not null" json:"ip"`
+	NetLabel  string `json:"net_label"`
+	Samples   int64  `gorm:"default:0" json:"samples"`
+	OK        int64  `gorm:"default:0" json:"ok"`
+	MsSum     int64  `gorm:"default:0" json:"ms_sum"` // over the OK samples only
+	UpdatedAt int64  `json:"updated_at"`
+}
+
 // JoinToken is reserved for Platform (v2) node enrollment. Table created in v1.
 type JoinToken struct {
 	ID        uint   `gorm:"primaryKey" json:"id"`
@@ -283,6 +301,6 @@ func AllModels() []any {
 		&Admin{}, &Setting{}, &Node{}, &Inbound{}, &Client{},
 		&Subscription{}, &WarpConfig{}, &RouteRule{}, &FirewallRule{},
 		&Certificate{}, &AdvancedConfig{}, &AuditLog{}, &HealthSnapshot{},
-		&TrafficDaily{}, &JoinToken{},
+		&TrafficDaily{}, &JoinToken{}, &CDNStatDaily{},
 	}
 }

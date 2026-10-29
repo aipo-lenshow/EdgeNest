@@ -6,12 +6,11 @@ import (
 	"testing"
 )
 
-// RecommendedCDNIPs must be a subset of the full candidate pool — the "fill
-// recommended" button seeds from the same set the speed test later probes, so a
-// stray IP outside the pool would never get re-measured.
+// RecommendedCDNIPs must come from the addresses measured from end-user
+// networks, so a default pool is never one a server's own speed test picked.
 func TestRecommendedCDNIPs_SubsetOfCandidates(t *testing.T) {
-	in := make(map[string]bool, len(CFCandidateIPs))
-	for _, ip := range CFCandidateIPs {
+	in := make(map[string]bool, len(clientProbeCandidates))
+	for _, ip := range clientProbeCandidates {
 		in[ip] = true
 	}
 	for _, ip := range RecommendedCDNIPs() {

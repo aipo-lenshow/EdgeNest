@@ -71,18 +71,20 @@ var CFCandidateIPs = []string{
 	"188.114.99.1",
 }
 
-// RecommendedCDNIPs returns the default subset to fill an operator's pool with
-// when they click "fill recommended". A spread across the main ranges gives
-// the per-user deterministic hash (PickCDNHost) enough entropy to distribute
-// clients while staying short enough to stay readable in the UI.
+// RecommendedCDNIPs returns the default pool: what a server starts with when
+// the operator turns CDN on without picking addresses, and what "fill
+// recommended" offers. It is drawn from clientProbeCandidates — addresses that
+// held up from end-user networks — and spread over three blocks, because a
+// speed test run from the server says little about what users' ISPs route
+// well. EdgeNest clients replace these with what they measure themselves.
 func RecommendedCDNIPs() []string {
 	return []string{
-		"104.16.0.1",
-		"104.17.0.1",
-		"104.18.0.1",
-		"172.64.80.1",
-		"172.67.73.1",
-		"162.159.0.1",
+		"103.31.4.230",
+		"162.159.129.27",
+		"188.114.97.75",
+		"103.31.4.231",
+		"162.159.133.199",
+		"188.114.96.31",
 	}
 }
 

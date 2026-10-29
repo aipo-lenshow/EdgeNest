@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, call } from "../api/client";
 import CdnCard from "../components/CdnCard";
+import CdnInsights from "../components/CdnInsights";
 import { Badge, Button, ErrorText, PageHeader, Spinner } from "../components/ui";
 
 interface AdvancedCDN {
@@ -104,6 +105,10 @@ export default function CdnPanel() {
             t("inbound.cdnSave")
           )}
         </Button>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        <CdnInsights />
       </div>
     </>
   );

@@ -31,6 +31,7 @@ func (h *Handler) NewRouter() *gin.Engine {
 
 	// Public subscription endpoint (no auth, no /api prefix).
 	r.GET("/sub/:token", h.PublicSubscription)
+	r.POST("/sub/:token/cdn-report", h.CDNReport)
 
 	// Public API v1 (no auth).
 	pub := r.Group("/api/v1")
@@ -153,6 +154,9 @@ func (h *Handler) NewRouter() *gin.Engine {
 		authed.GET("/advanced/cdn/candidates", h.CDNCandidates)
 		authed.POST("/advanced/cdn/candidates/refresh", h.CDNRefreshCandidates)
 		authed.POST("/advanced/cdn/speedtest", h.CDNSpeedtest)
+		authed.GET("/advanced/cdn/networks", h.CDNNetworks)
+		authed.GET("/advanced/cdn/policy", h.GetCDNPolicy)
+		authed.PUT("/advanced/cdn/policy", h.PutCDNPolicy)
 		// Granular per-feature saves so the inbound page's CDN / Argo / QUIC tabs
 		// each persist independently (a CDN save never trips Argo's token check).
 		authed.PUT("/advanced/cdn", h.PutAdvancedCDN)

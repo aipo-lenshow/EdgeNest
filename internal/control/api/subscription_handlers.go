@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -526,14 +525,12 @@ func (h *Handler) PublicSubscription(c *gin.Context) {
 	// apply to it. Served over the subscription's own HTTPS, never on the
 	// wire in clear.
 	c.Header("X-EdgeNest-Sub", "1")
-	// With the CDN preferred-IP pool on, EdgeNest clients also get a short list
-	// of Cloudflare addresses to probe from their own network and re-point CDN
-	// nodes at when the subscribed ones are slow there. Absent when CDN is off,
-	// so clients leave CDN nodes alone.
+	// With the CDN preferred-IP pool on, EdgeNest clients also get the
+	// Cloudflare addresses to probe from their own network — led by what other
+	// clients on that network found best — and the manual re-optimise policy.
+	// Absent when CDN is off, so clients leave CDN nodes alone.
 	if pool := resolver.CDNPool(); len(pool) > 0 {
-		if cands := share.ClientCandidates(pool); len(cands) > 0 {
-			c.Header("X-EdgeNest-CDN-Candidates", strings.Join(cands, ","))
-		}
+		h.setCDNSubHeaders(c, pool)
 	}
 	c.Header("Cache-Control", "no-store, max-age=0")
 	c.Data(http.StatusOK, contentType, []byte(body))

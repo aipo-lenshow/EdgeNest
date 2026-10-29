@@ -8,6 +8,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/cdnstats"
 	"log"
 	"net"
 	"os"
@@ -205,6 +206,8 @@ func runStandalone(cfg config.Config) {
 	// page read the cache to flag a newer version). Opt out via
 	// update_check_enabled=false. Public release metadata only — no host info.
 	updatecheck.New(st, version).Start(context.Background())
+	// Pooled CDN probe results expire after the retention window (EDGENEST_CDN_STATS_DAYS).
+	cdnstats.NewPruner(st, cdnstats.RetentionDays()).Start(context.Background())
 
 	// HTTP / control plane.
 	h := api.NewHandler(st, nodeClient, api.HandlerDeps{

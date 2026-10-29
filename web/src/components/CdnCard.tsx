@@ -229,6 +229,9 @@ export default function CdnCard({
               : t("advanced.cdnRefreshCandidates")}
           </Button>
         </div>
+        <div className="text-xs text-amber-300/80">
+          {t("advanced.cdnServerTestNote")}
+        </div>
         {deep && (
           <div className="text-xs text-white/40">
             {t("advanced.cdnDeepTestHint")}

@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/aipo-lenshow/EdgeNest/internal/control/cdnstats"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -21,16 +23,18 @@ import (
 // touches nodes ONLY through nodeClient (NodeClient interface) — never by
 // importing node/engine directly.
 type Handler struct {
-	store        *store.Store
-	node         nodeapi.NodeClient
-	orch         *orchestrator.Orchestrator
-	wiz          *wizard.Wizard
-	certMgr      *cert.Manager
-	jwtSecret    string
-	localNodeID  string
-	panelPort    int
-	dataDir      string
-	loginLimiter *rateLimiter
+	store          *store.Store
+	node           nodeapi.NodeClient
+	orch           *orchestrator.Orchestrator
+	wiz            *wizard.Wizard
+	certMgr        *cert.Manager
+	jwtSecret      string
+	localNodeID    string
+	panelPort      int
+	dataDir        string
+	loginLimiter   *rateLimiter
+	cdnLimiterOnce sync.Once
+	cdnLimiter     *cdnstats.Limiter
 	// auditEnabled gates audit logging. Defaults on; a persisted
 	// "audit_enabled=false" setting (toggled from the panel) disables it so
 	// self-hosters who don't want an operation history on disk can opt out.
