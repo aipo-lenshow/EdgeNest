@@ -161,3 +161,16 @@ func TestCDNPolicy_RoundTripAndBounds(t *testing.T) {
 		t.Fatalf("stored %+v", got)
 	}
 }
+
+func TestSubscription_PercentEncodedNetworkHeader(t *testing.T) {
+	h := newAdvancedTestHandler(t)
+	token := seedSubscription(t, h)
+	enableCDN(t, h)
+	day := cdnstats.Day(time.Now())
+	for i := 0; i < 3; i++ {
+		_ = h.store.AddCDNSamples(day, "CN|联通|北方", "联通·北方", []store.CDNSample{{IP: "188.114.96.31", OK: true, Ms: 90}})
+	}
+	if got := fetchSubHeaders(t, h, token, "CN%7C%E8%81%94%E9%80%9A%7C%E5%8C%97%E6%96%B9")["X-EdgeNest-CDN-Recommended"]; got != "188.114.96.31" {
+		t.Fatalf("percent-encoded key: recommended %q", got)
+	}
+}

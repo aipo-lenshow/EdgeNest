@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -82,6 +83,18 @@ func (h *Handler) cdnNetwork(netKey string) *cdnstats.Network {
 	return &nets[0]
 }
 
+// clientNetKey reads X-EdgeNest-Net: percent-encoded by clients whose HTTP
+// stack only sends ASCII header values, raw UTF-8 from others.
+func clientNetKey(h string) string {
+	h = strings.TrimSpace(h)
+	if strings.Contains(h, "%") {
+		if v, err := url.QueryUnescape(h); err == nil {
+			return v
+		}
+	}
+	return h
+}
+
 // setCDNSubHeaders adds the CDN headers to a subscription response: the
 // candidates to probe — ordered for the client's network when that network has
 // pooled results (X-EdgeNest-Net, sent by the client) — the addresses ranked
@@ -91,7 +104,7 @@ func (h *Handler) setCDNSubHeaders(c *gin.Context, pool []string) {
 	if len(cands) == 0 {
 		return
 	}
-	if n := h.cdnNetwork(strings.TrimSpace(c.GetHeader("X-EdgeNest-Net"))); n != nil {
+	if n := h.cdnNetwork(clientNetKey(c.GetHeader("X-EdgeNest-Net"))); n != nil {
 		rec := n.Recommended(recommendedPerNetwork)
 		cands = cdnstats.Order(cands, rec)
 		if len(rec) > 0 {
