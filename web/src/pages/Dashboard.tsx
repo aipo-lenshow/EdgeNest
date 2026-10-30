@@ -5,9 +5,16 @@ import { api, call } from "../api/client";
 import Layout from "../components/Layout";
 import { PageHeader, fmtBytes } from "../components/ui";
 import SystemInfoPage from "./SystemInfo";
+import RestartService from "../components/RestartService";
 
 interface DashboardData {
-  engine: { running: boolean; version: string; detail?: string };
+  engine: {
+    running: boolean;
+    version: string;
+    detail?: string;
+    last_error?: string;
+    last_error_at?: number;
+  };
   health: { singbox_running: boolean; bbr: string };
   nodes: number;
 }
@@ -25,6 +32,7 @@ export default function Dashboard() {
   const { data: dash } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => call<DashboardData>(api.get("/dashboard")),
+    refetchInterval: 15_000,
   });
   const { data: stats } = useQuery({
     queryKey: ["stats-summary"],
@@ -42,9 +50,14 @@ export default function Dashboard() {
       <PageHeader
         title={t("dashboard.title")}
         subtitle={t("dashboard.subtitle")}
+        action={<RestartService />}
       />
 
       <div className="grid gap-6">
+        {dash?.engine.last_error && (
+          <EngineFailure reason={dash.engine.last_error} at={dash.engine.last_error_at} />
+        )}
+
         {/* System info + Xray cards, merged in from the former /system page. */}
         <SystemInfoPage embedded />
 
@@ -104,6 +117,33 @@ export default function Dashboard() {
         </div>
       </div>
     </Layout>
+  );
+}
+
+// EngineFailure shows why the proxy engine last exited, in its own words, with
+// a plain-language hint for the failures operators actually hit.
+function EngineFailure({ reason, at }: { reason: string; at?: number }) {
+  const { t } = useTranslation();
+  const hint = /cannot assign requested address/i.test(reason)
+    ? t("dashboard.engineFailHintAddr")
+    : /address already in use/i.test(reason)
+    ? t("dashboard.engineFailHintPort")
+    : /certificate|x509|key file|no such file/i.test(reason)
+    ? t("dashboard.engineFailHintCert")
+    : t("dashboard.engineFailHintOther");
+  return (
+    <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-5 grid gap-3">
+      <div className="text-sm font-semibold text-amber-200">{t("dashboard.engineFailTitle")}</div>
+      <div>
+        <div className="text-xs text-white/50">
+          {t("dashboard.engineFailReason")}
+          {at ? ` · ${new Date(at * 1000).toLocaleString()}` : ""}
+        </div>
+        <code className="mt-1 block break-all text-xs text-white/80">{reason}</code>
+      </div>
+      <p className="text-sm text-white/80">{hint}</p>
+      <RestartService variant="primary" />
+    </div>
   );
 }
 

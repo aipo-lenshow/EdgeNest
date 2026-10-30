@@ -301,3 +301,18 @@ func (h *Handler) FirewallPreview(c *gin.Context) {
 		"allow_ports": cfg.Firewall.AllowPorts,
 	})
 }
+
+// SystemRestart restarts the whole EdgeNest service: the panel exits after
+// the response flushes and systemd (Restart=always) starts it again, which
+// re-runs the startup checks — following a changed host address included —
+// and re-applies the engines from the database.
+//
+// POST /api/v1/system/restart
+func (h *Handler) SystemRestart(c *gin.Context) {
+	h.writeAudit(c, "system.restart", "system", nil)
+	core.OK(c, gin.H{"restarting": true})
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		os.Exit(0)
+	}()
+}

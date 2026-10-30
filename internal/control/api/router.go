@@ -123,6 +123,7 @@ func (h *Handler) NewRouter() *gin.Engine {
 		// (applied on the next restart).
 		authed.POST("/system/backup", h.SystemBackup)
 		authed.POST("/system/restore", h.SystemRestore)
+		authed.POST("/system/restart", h.SystemRestart)
 
 		// Panel-editable settings (host, panel_path, notify)
 		authed.GET("/settings", h.ListSettings)
