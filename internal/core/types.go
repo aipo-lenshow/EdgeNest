@@ -186,6 +186,10 @@ type EngineStatus struct {
 	Version string `json:"version"`
 	Uptime  int64  `json:"uptime_seconds"`
 	Detail  string `json:"detail,omitempty"`
+	// LastError is what the engine printed before it last exited (e.g. a bind
+	// failure); empty once a process has stayed up.
+	LastError   string `json:"last_error,omitempty"`
+	LastErrorAt int64  `json:"last_error_at,omitempty"`
 }
 
 type Traffic struct {

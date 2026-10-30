@@ -16,6 +16,7 @@ import (
 
 	"github.com/aipo-lenshow/EdgeNest/internal/logcap"
 	"github.com/aipo-lenshow/EdgeNest/internal/logredact"
+	"github.com/aipo-lenshow/EdgeNest/internal/node/engine/crashlog"
 )
 
 const (
@@ -24,6 +25,9 @@ const (
 
 	supervisorBackoffMin = 1 * time.Second
 	supervisorBackoffMax = 30 * time.Second
+	// crashLoopWindow: a process that dies sooner than this after starting
+	// is crash-looping, so restarts back off instead of retrying every second.
+	crashLoopWindow = 10 * time.Second
 )
 
 type process struct {
@@ -32,6 +36,7 @@ type process struct {
 	stopOnce sync.Once
 	done     chan struct{}
 	waitErr  error
+	tail     *crashlog.Tail // last output, kept to explain an exit
 }
 
 // runCheck runs `xray -test -config <path> -format json` and returns combined
@@ -93,17 +98,18 @@ func (e *Engine) startLocked() error {
 	if err != nil {
 		logFile = nil
 	}
+	tail := &crashlog.Tail{}
 	cmd := exec.Command(e.binPath, "run", "-config", e.configPath, "-format", "json")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if logFile != nil {
 		// One wrapper for both streams (single-goroutine write); masks IPs when
 		// the privacy toggle is on, transparent otherwise.
-		lw := logredact.Writer(logFile)
-		cmd.Stdout = lw
-		cmd.Stderr = lw
+		out := io.MultiWriter(logredact.Writer(logFile), tail)
+		cmd.Stdout = out
+		cmd.Stderr = out
 	} else {
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		cmd.Stdout = tail
+		cmd.Stderr = tail
 	}
 	if err := cmd.Start(); err != nil {
 		if logFile != nil {
@@ -111,7 +117,7 @@ func (e *Engine) startLocked() error {
 		}
 		return fmt.Errorf("start xray: %w", err)
 	}
-	p := &process{cmd: cmd, logFile: logFile, done: make(chan struct{})}
+	p := &process{cmd: cmd, logFile: logFile, done: make(chan struct{}), tail: tail}
 	go func() {
 		p.waitErr = cmd.Wait()
 		close(p.done)
@@ -201,6 +207,12 @@ func (e *Engine) supervise() {
 				backoff = supervisorBackoffMin
 				continue
 			}
+			e.mu.Lock()
+			short := e.noteExitLocked(p)
+			e.mu.Unlock()
+			if !short {
+				backoff = supervisorBackoffMin
+			}
 			time.Sleep(backoff)
 			e.mu.Lock()
 			if e.proc != p {
@@ -218,9 +230,28 @@ func (e *Engine) supervise() {
 				continue
 			}
 			e.mu.Unlock()
-			backoff = supervisorBackoffMin
+			// Doubles for the next crash; reset above if this run lasts.
+			backoff = min(backoff*2, supervisorBackoffMax)
 		case <-stopCh:
 			return
 		}
 	}
+}
+
+// noteExitLocked records why p exited, for Status, and reports whether it died
+// soon after starting. Caller MUST hold e.mu and p must have exited.
+func (e *Engine) noteExitLocked(p *process) bool {
+	if p == nil {
+		return false
+	}
+	reason := ""
+	if p.tail != nil {
+		reason = p.tail.Reason()
+	}
+	if reason == "" && p.waitErr != nil {
+		reason = p.waitErr.Error()
+	}
+	e.lastErr = reason
+	e.lastErrAt = time.Now()
+	return time.Since(e.startedAt) < crashLoopWindow
 }

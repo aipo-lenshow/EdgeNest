@@ -111,7 +111,22 @@ func (r *Registry) StopAll() error {
 // TASK-13 will expand this to a per-engine slice.
 func (r *Registry) AggregateStatus() core.EngineStatus {
 	if e := r.engines[core.EngineSingbox]; e != nil {
-		return e.Status()
+		st := e.Status()
+		// Running reflects sing-box; surface another engine's failure too, or
+		// a broken xray inbound would be invisible on the dashboard.
+		if st.LastError == "" {
+			for _, name := range r.Names() {
+				if name == core.EngineSingbox {
+					continue
+				}
+				if o := r.engines[name].Status(); o.LastError != "" {
+					st.LastError = name + ": " + o.LastError
+					st.LastErrorAt = o.LastErrorAt
+					break
+				}
+			}
+		}
+		return st
 	}
 	for _, name := range r.Names() {
 		return r.engines[name].Status()

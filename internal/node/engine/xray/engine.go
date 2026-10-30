@@ -36,6 +36,10 @@ type Engine struct {
 	version   string // memoised `xray version`
 
 	supervisorStop chan struct{}
+
+	// lastErr is why the subprocess last died; cleared once one stays up.
+	lastErr   string
+	lastErrAt time.Time
 }
 
 // New constructs an xray engine.
@@ -117,12 +121,15 @@ func (e *Engine) Apply(cfg core.DesiredConfig) (core.ApplyResult, error) {
 
 	time.Sleep(verifyDelay)
 	if !e.aliveLocked() {
+		e.noteExitLocked(e.proc)
+		reason := e.lastErr
 		if rbErr := e.rollbackLocked(bakPath); rbErr != nil {
 			return core.ApplyResult{OK: false, RolledBack: false, Message: "subprocess died after reload and rollback failed: " + rbErr.Error()}, nil
 		}
-		return core.ApplyResult{OK: false, RolledBack: true, Message: "subprocess died after reload, rolled back"}, nil
+		return core.ApplyResult{OK: false, RolledBack: true, Message: "subprocess died after reload, rolled back: " + reason}, nil
 	}
 
+	e.lastErr = ""
 	return core.ApplyResult{OK: true, Message: "applied"}, nil
 }
 
@@ -150,6 +157,13 @@ func (e *Engine) Status() core.EngineStatus {
 		}
 	}
 	st := core.EngineStatus{Running: running, Version: version}
+	if running && time.Since(e.startedAt) >= 3*crashLoopWindow {
+		e.lastErr = ""
+	}
+	if e.lastErr != "" {
+		st.LastError = e.lastErr
+		st.LastErrorAt = e.lastErrAt.Unix()
+	}
 	if running {
 		st.Uptime = int64(time.Since(e.startedAt).Seconds())
 	}

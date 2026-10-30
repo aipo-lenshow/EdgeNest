@@ -16,6 +16,7 @@ import (
 
 	"github.com/aipo-lenshow/EdgeNest/internal/logcap"
 	"github.com/aipo-lenshow/EdgeNest/internal/logredact"
+	"github.com/aipo-lenshow/EdgeNest/internal/node/engine/crashlog"
 )
 
 const (
@@ -31,6 +32,9 @@ const (
 	// supervisorBackoffMin / Max bound the crash-watch restart backoff.
 	supervisorBackoffMin = 1 * time.Second
 	supervisorBackoffMax = 30 * time.Second
+	// crashLoopWindow: a process that dies sooner than this after starting
+	// is crash-looping, so restarts back off instead of retrying every second.
+	crashLoopWindow = 10 * time.Second
 )
 
 // process wraps an os/exec.Cmd plus log routing. One per running sing-box.
@@ -40,6 +44,7 @@ type process struct {
 	stopOnce sync.Once
 	done     chan struct{} // closed when Wait returns
 	waitErr  error
+	tail     *crashlog.Tail // last output, kept to explain an exit
 }
 
 // runCheck runs `sing-box check -c <path>` and returns its combined output.
@@ -107,6 +112,7 @@ func (e *Engine) startLocked() error {
 		logFile = nil
 	}
 
+	tail := &crashlog.Tail{}
 	cmd := exec.Command(e.binPath, "run", "-c", e.configPath)
 	// Run in its own process group so we can SIGTERM the whole tree on stop.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -114,12 +120,12 @@ func (e *Engine) startLocked() error {
 		// Same wrapper instance for stdout+stderr so os/exec funnels both through
 		// one goroutine (no concurrent Write to logFile). The wrapper masks IPs
 		// when the privacy toggle is on; transparent otherwise.
-		lw := logredact.Writer(logFile)
-		cmd.Stdout = lw
-		cmd.Stderr = lw
+		out := io.MultiWriter(logredact.Writer(logFile), tail)
+		cmd.Stdout = out
+		cmd.Stderr = out
 	} else {
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		cmd.Stdout = tail
+		cmd.Stderr = tail
 	}
 	if err := cmd.Start(); err != nil {
 		if logFile != nil {
@@ -128,7 +134,7 @@ func (e *Engine) startLocked() error {
 		return fmt.Errorf("start sing-box: %w", err)
 	}
 
-	p := &process{cmd: cmd, logFile: logFile, done: make(chan struct{})}
+	p := &process{cmd: cmd, logFile: logFile, done: make(chan struct{}), tail: tail}
 	go func() {
 		p.waitErr = cmd.Wait()
 		close(p.done)
@@ -235,6 +241,12 @@ func (e *Engine) supervise() {
 				continue
 			}
 			// Crash. Sleep then restart.
+			e.mu.Lock()
+			short := e.noteExitLocked(p)
+			e.mu.Unlock()
+			if !short {
+				backoff = supervisorBackoffMin
+			}
 			time.Sleep(backoff)
 			e.mu.Lock()
 			if e.proc != p { // raced with an external restart
@@ -253,9 +265,28 @@ func (e *Engine) supervise() {
 				continue
 			}
 			e.mu.Unlock()
-			backoff = supervisorBackoffMin
+			// Doubles for the next crash; reset above if this run lasts.
+			backoff = min(backoff*2, supervisorBackoffMax)
 		case <-stopCh:
 			return
 		}
 	}
+}
+
+// noteExitLocked records why p exited, for Status, and reports whether it died
+// soon after starting. Caller MUST hold e.mu and p must have exited.
+func (e *Engine) noteExitLocked(p *process) bool {
+	if p == nil {
+		return false
+	}
+	reason := ""
+	if p.tail != nil {
+		reason = p.tail.Reason()
+	}
+	if reason == "" && p.waitErr != nil {
+		reason = p.waitErr.Error()
+	}
+	e.lastErr = reason
+	e.lastErrAt = time.Now()
+	return time.Since(e.startedAt) < crashLoopWindow
 }
