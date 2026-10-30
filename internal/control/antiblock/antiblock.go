@@ -191,7 +191,8 @@ func normBase(v string, httpsOnly bool) (string, error) {
 }
 
 // Save persists c (already Normalize'd). The mirror list's sequence number is
-// bumped whenever the list changes so clients accept the new one.
+// bumped whenever the list clients receive changes (including through the
+// edge domain or base URL) so they accept the new one.
 func Save(s *store.Store, c Config) error {
 	prev := Load(s)
 	mirrors, _ := json.Marshal(c.Mirrors)
@@ -220,7 +221,7 @@ func Save(s *store.Store, c Config) error {
 			return err
 		}
 	}
-	if strings.Join(prev.Mirrors, "\n") != strings.Join(c.Mirrors, "\n") {
+	if strings.Join(prev.MirrorBases(), "\n") != strings.Join(c.MirrorBases(), "\n") {
 		return s.SetSetting(keyMirrorsSeq, strconv.FormatInt(time.Now().Unix(), 10))
 	}
 	return nil
@@ -255,18 +256,34 @@ func truthy(v any) bool {
 	return false
 }
 
+// MirrorBases is the origin list a client may fall back to when its own
+// subscription URL stops answering: the https subscription origin (the edge
+// domain once something serves it, or the operator's base URL), then any
+// extra mirrors. The origin alone is worth handing out: a client imported by
+// IP:port keeps working after the server's address changes or the panel
+// port closes to the outside.
+func (c Config) MirrorBases() []string {
+	var bases []string
+	if o := c.SubOrigin(); strings.HasPrefix(o, "https://") {
+		bases = append(bases, o)
+	}
+	for _, m := range c.Mirrors {
+		if len(bases) == 0 || m != bases[0] {
+			bases = append(bases, m)
+		}
+	}
+	return bases
+}
+
 // MirrorsHeader returns the value of the X-EdgeNest-Mirrors subscription
-// header ("<payload>.<sig>", both base64url without padding), or "" when no
-// mirrors are configured. The signing key is generated on first use and kept
-// in the settings table; clients pin its public half on first sight.
+// header ("<payload>.<sig>", both base64url without padding), or "" when
+// there is nowhere to fall back to. The signing key is generated on first use
+// and kept in the settings table; clients pin its public half on first sight.
 func MirrorsHeader(s *store.Store) (string, error) {
 	c := Load(s)
-	bases := c.Mirrors
+	bases := c.MirrorBases()
 	if len(bases) == 0 {
 		return "", nil
-	}
-	if o := c.SubOrigin(); strings.HasPrefix(o, "https://") {
-		bases = append([]string{o}, bases...)
 	}
 	priv, err := signingKey(s)
 	if err != nil {

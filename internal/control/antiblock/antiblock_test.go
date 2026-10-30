@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aipo-lenshow/EdgeNest/internal/control/store"
 )
@@ -94,6 +95,59 @@ func TestMirrorsHeaderVerifies(t *testing.T) {
 	k1, _ := PublicKey(st)
 	if k1 != p.Pub {
 		t.Fatal("PublicKey disagrees with the signed payload")
+	}
+}
+
+func mirrorPayload(t *testing.T, h string) (seq int64, bases []string) {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(strings.Split(h, ".")[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p struct {
+		Seq   int64    `json:"seq"`
+		Bases []string `json:"bases"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatal(err)
+	}
+	return p.Seq, p.Bases
+}
+
+// The edge origin alone is a fallback worth sending: a client that imported
+// the IP:port link keeps updating after the address changes or the panel port
+// closes. A new edge domain must also move seq, or clients keep the old list.
+func TestMirrorsHeaderCarriesEdgeOriginAlone(t *testing.T) {
+	st := newStore(t)
+	if err := Save(st, Config{EdgeDomain: "cdn.example.com", GatewayMode: GatewayBuiltin}); err != nil {
+		t.Fatal(err)
+	}
+	h, err := MirrorsHeader(st)
+	if err != nil || h == "" {
+		t.Fatalf("edge origin alone should produce a header, got %q %v", h, err)
+	}
+	seq1, bases := mirrorPayload(t, h)
+	if len(bases) != 1 || bases[0] != "https://cdn.example.com" {
+		t.Fatalf("bases = %v", bases)
+	}
+
+	time.Sleep(1100 * time.Millisecond) // seq is a unix timestamp
+	if err := Save(st, Config{EdgeDomain: "cdn2.example.com", GatewayMode: GatewayBuiltin}); err != nil {
+		t.Fatal(err)
+	}
+	h2, _ := MirrorsHeader(st)
+	seq2, bases2 := mirrorPayload(t, h2)
+	if bases2[0] != "https://cdn2.example.com" || seq2 <= seq1 {
+		t.Fatalf("after domain change: seq %d -> %d, bases %v", seq1, seq2, bases2)
+	}
+
+	// A mirror equal to the origin is not listed twice.
+	if err := Save(st, Config{EdgeDomain: "cdn2.example.com", GatewayMode: GatewayBuiltin, Mirrors: []string{"https://cdn2.example.com", "https://b.example.net"}}); err != nil {
+		t.Fatal(err)
+	}
+	h3, _ := MirrorsHeader(st)
+	if _, b := mirrorPayload(t, h3); len(b) != 2 || b[1] != "https://b.example.net" {
+		t.Fatalf("dedup: %v", b)
 	}
 }
 
