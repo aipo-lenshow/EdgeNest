@@ -141,6 +141,14 @@ func Ensure(s *store.Store) (Result, error) {
 		return res, err
 	}
 
+	// A provider-side IP change leaves the old address on every inbound;
+	// move them before the engines render and fail to bind it.
+	if len(HealAddressChange(s, core.DefaultCapabilityPath)) > 0 {
+		if node, err = s.GetLocalNode(); err != nil {
+			return res, err
+		}
+	}
+
 	// Privacy by default: a node with no /advanced row yet (fresh install, or
 	// an upgrade where the operator never opened that page) starts with
 	// client-IP redaction on, so users' source addresses never land in the
