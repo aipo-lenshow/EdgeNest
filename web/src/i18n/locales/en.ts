@@ -1833,6 +1833,8 @@ const en = {
       "ℹ️ {{port}} is a Cloudflare HTTPS whitelist port. Using it here for a non-CDN protocol is fine, but a future CDN-eligible protocol will not be able to claim {{port}}.",
   },
   createInbound: {
+    addAllUsersHint: "Your existing users don't have these {{count}} new inbound(s) yet. Once added, their quota, expiry and on/off state stay as they are, and the new nodes appear when their subscriptions refresh.",
+    addAllUsersBtn: "Add to all users ({{count}})",
     title: "Create inbound",
     subtitle:
       "Three flows: Quick (pick protocols directly), Scenario (recommend by use-case), or Full wizard (domain / CDN / Argo).",

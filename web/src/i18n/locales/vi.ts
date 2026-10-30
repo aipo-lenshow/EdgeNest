@@ -1834,6 +1834,8 @@ const vi = {
       "ℹ️ {{port}} là một cổng trong danh sách trắng HTTPS Cloudflare. Dùng nó ở đây cho một giao thức không phải CDN thì ổn, nhưng một giao thức đủ điều kiện CDN trong tương lai sẽ không thể yêu cầu {{port}}.",
   },
   createInbound: {
+    addAllUsersHint: "Người dùng hiện có chưa có {{count}} inbound mới này. Sau khi thêm, hạn mức, hạn dùng và trạng thái bật/tắt của họ giữ nguyên; node mới sẽ xuất hiện khi gói đăng ký được làm mới.",
+    addAllUsersBtn: "Thêm cho tất cả người dùng ({{count}})",
     title: "Tạo luồng vào",
     subtitle:
       "Ba luồng: Nhanh (chọn giao thức trực tiếp), Kịch bản (khuyến nghị theo trường hợp dùng), hoặc Trình hướng dẫn đầy đủ (tên miền / CDN / Argo).",

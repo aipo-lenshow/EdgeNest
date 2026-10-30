@@ -1829,6 +1829,8 @@ const zh = {
       "ℹ️ {{port}} 是 Cloudflare HTTPS 白名单端口。当前协议不走 CDN 用它没问题，但今后选 CDN 协议时 {{port}} 就被这条占了，没法再选。",
   },
   createInbound: {
+    addAllUsersHint: "已有的用户还没有这 {{count}} 个新入站。加给他们后，额度、到期和启用状态都跟原来一样，订阅刷新后就会看到新节点。",
+    addAllUsersBtn: "加给所有用户（{{count}} 位）",
     title: "创建入站",
     subtitle: "三种创建方式：快速直接挑协议 / 场景按使用目的推荐 / 完整向导处理域名 CDN Argo。",
     familyTitle: "本批入站绑定哪个 IP",

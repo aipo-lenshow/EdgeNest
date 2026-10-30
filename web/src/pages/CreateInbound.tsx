@@ -33,6 +33,7 @@ import {
   type ClientId,
   type ProtoId,
 } from "../lib/protocolMeta";
+import AddNewInboundsToAllUsers from "../components/AddNewInboundsToAllUsers";
 
 type DomainStatus = "ok" | "proxied" | "mismatch" | "none";
 
@@ -1917,6 +1918,7 @@ function ResultPanel({
         {protocols.some((p) => p.argoTemp || p.argoNamed) && (
           <ArgoAutoStart t={t} />
         )}
+        <AddNewInboundsToAllUsers inbounds={result.inbounds} />
 
         <PortVerifyChecklist
           inbounds={result.inbounds}
