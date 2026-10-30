@@ -173,6 +173,8 @@ func (h *Handler) NewRouter() *gin.Engine {
 		// Argo tunnel control
 		authed.GET("/argo/status", h.ArgoStatus)
 		authed.POST("/argo/start", h.ArgoStart)
+		authed.GET("/argo/origin", h.GetArgoOrigin)
+		authed.PUT("/argo/origin", h.SetArgoOrigin)
 		authed.POST("/argo/stop", h.ArgoStop)
 
 		// Argo via Cloudflare API: one-click create/select a named tunnel,

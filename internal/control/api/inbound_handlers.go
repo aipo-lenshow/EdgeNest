@@ -87,8 +87,8 @@ var edgeWSTypes = map[string]bool{"vmess": true, "vmess-ws": true, "vless-ws": t
 
 // edgeBindGate is argoBindGate for edge_bound inbounds: the operator's reverse
 // proxy terminates TLS and forwards the WebSocket path to a plaintext origin
-// on loopback, so the same three conditions hold. An edge inbound also cannot
-// be Argo-bound or use the CDN preferred-IP pool at the same time.
+// on loopback, so the same three conditions hold. An edge inbound cannot use
+// the per-inbound CDN preferred-IP mode at the same time.
 func edgeBindGate(typ, listen string, settings map[string]any) string {
 	if !settingTruthy(settings["edge_bound"]) {
 		return ""
@@ -96,8 +96,10 @@ func edgeBindGate(typ, listen string, settings map[string]any) string {
 	if !edgeWSTypes[typ] {
 		return "反代接入仅支持 WebSocket 协议(VMess-WS / VLESS-WS)。请用向导的「接入优化 → 经反代域名」创建专用入站。"
 	}
-	if settingTruthy(settings["argo_bound"]) || settingTruthy(settings["cdn_mode"]) {
-		return "反代接入不能同时开启 Argo 或 CDN 优选 IP, 三者只能选一种。"
+	// argo_bound may coexist: the tunnel can feed the edge inbound itself
+	// (both paths reach the same loopback origin).
+	if settingTruthy(settings["cdn_mode"]) {
+		return "反代接入不能同时开启 CDN 优选 IP。"
 	}
 	if cert, _ := settings["tls_cert_path"].(string); cert != "" {
 		return "反代接入要求入站为明文 WebSocket(TLS 由反代和 Cloudflare 提供), 当前入站带证书。请用向导的「接入优化 → 经反代域名」创建专用明文入站。"

@@ -150,11 +150,12 @@ func (r *Resolver) Resolve(token string) ([]string, error) {
 // domain configured (it only listens on loopback), or any directly-exposed
 // inbound while low-profile mode is on (the engine isn't serving it).
 func (r *Resolver) skip(in *model.Inbound) bool {
-	if r.argoUnavailable(in) {
-		return true
-	}
 	s := decodeSettings(in)
-	if truthyBool(s["edge_bound"]) && r.antiblock.EdgeDomain == "" {
+	argo, edge := truthyBool(s["argo_bound"]), truthyBool(s["edge_bound"])
+	if (argo || edge) && !(argo && r.argoHost != "") && !(edge && r.antiblock.EdgeDomain != "") {
+		// Loopback-only origin with no live entry path: no tunnel running and
+		// no edge domain configured. An inbound that is both (the tunnel fed
+		// by the CDN inbound) stays in while either path is up.
 		return true
 	}
 	return !r.antiblock.Runs(s)
@@ -168,24 +169,6 @@ func decodeSettings(in *model.Inbound) map[string]any {
 	return s
 }
 
-// argoUnavailable reports whether in is an Argo-bound inbound whose tunnel is
-// not currently running. Such an inbound listens on 127.0.0.1 only (cloudflared
-// is its sole origin client), so emitting it into a subscription would hand out
-// a dead VPS:loopback-port link. We omit it until the tunnel is up; the panel
-// surfaces a "start the tunnel" badge so the operator knows why it's missing.
-// Once argoHost is set, edgeEncodingInbound rewrites it to the tunnel edge view
-// and it belongs in the subscription again.
-func (r *Resolver) argoUnavailable(in *model.Inbound) bool {
-	if r.argoHost != "" {
-		return false
-	}
-	var s map[string]any
-	if in.Settings != "" {
-		_ = json.Unmarshal([]byte(in.Settings), &s)
-	}
-	return truthyBool(s["argo_bound"])
-}
-
 // effectiveHost returns the host string to embed as the `server` field for
 // (inbound, client). Argo binding takes precedence over CDN preferred-IP
 // routing, which in turn takes precedence over the global share host —
@@ -197,7 +180,7 @@ func (r *Resolver) effectiveHost(in *model.Inbound, c model.Client) string {
 	}
 	// Argo wins: if the inbound is bound to the tunnel and a hostname is
 	// available, every client dials the tunnel.
-	if r.argoHost != "" && truthyBool(settings["argo_bound"]) && isCDNCompatibleType(in.Type) {
+	if r.argoHost != "" && truthyBool(settings["argo_bound"]) && isCDNCompatibleType(in.Type) && !r.edgeServes(settings) {
 		return r.argoHost
 	}
 	// Edge reverse proxy: the client dials the Cloudflare-proxied name, the
@@ -276,6 +259,7 @@ type view struct {
 	in   *model.Inbound
 	host string
 	pool bool // dials a CDN preferred-IP pool address
+	argo bool // reaches the origin through the Argo tunnel
 }
 
 // views returns every rendering of (in, c), normally just encodingView's. An
@@ -289,8 +273,27 @@ type view struct {
 // the slow, unpinned path the pool replaces, and leaving it in lets clients
 // that pick by list order land on it.
 func (r *Resolver) views(in *model.Inbound, c model.Client) []view {
+	out := r.edgeViews(in, c)
+	// The tunnel can be fed by the CDN inbound itself: its users then get the
+	// CDN nodes above plus one node through the tunnel hostname.
+	if s := decodeSettings(in); r.argoHost != "" && truthyBool(s["argo_bound"]) && r.edgeServes(s) && isCDNCompatibleType(in.Type) {
+		cp := edgeEncodingInbound(in, r.argoHost, 443)
+		cp.Remark = remarkOf(in, c) + "-Argo"
+		out = append(out, view{in: cp, host: r.argoHost, argo: true})
+	}
+	return out
+}
+
+// edgeServes reports whether an edge_bound inbound has its edge domain
+// configured, i.e. the CDN path is live.
+func (r *Resolver) edgeServes(settings map[string]any) bool {
+	return truthyBool(settings["edge_bound"]) && r.antiblock.EdgeDomain != ""
+}
+
+func (r *Resolver) edgeViews(in *model.Inbound, c model.Client) []view {
 	encIn, host := r.encodingView(in, c)
-	out := []view{{in: encIn, host: host}}
+	isArgo := r.argoHost != "" && host == r.argoHost
+	out := []view{{in: encIn, host: host, argo: isArgo}}
 	if encIn == in || len(r.cdnPool) == 0 {
 		return out
 	}
@@ -308,7 +311,7 @@ func (r *Resolver) views(in *model.Inbound, c model.Client) []view {
 		n++
 		cp := *encIn
 		cp.Remark = fmt.Sprintf("%s-CF%d", base, n)
-		pooled = append(pooled, view{in: &cp, host: addr, pool: true})
+		pooled = append(pooled, view{in: &cp, host: addr, pool: true, argo: isArgo})
 	}
 	if len(pooled) == 0 {
 		return out
@@ -471,9 +474,8 @@ func (r *Resolver) BuildBundleForClient(c *model.Client) ([]ShareLink, error) {
 		if in.Settings != "" {
 			_ = json.Unmarshal([]byte(in.Settings), &settings)
 		}
-		isArgo := r.argoHost != "" && truthyBool(settings["argo_bound"]) && isCDNCompatibleType(in.Type)
-		isEdge := !isArgo && r.antiblock.EdgeDomain != "" && truthyBool(settings["edge_bound"]) && isCDNCompatibleType(in.Type)
-		isCDN := isEdge || (!isArgo && PickCDNHost(in, client, settings, r.cdnPool) != "")
+		isEdge := r.edgeServes(settings) && isCDNCompatibleType(in.Type)
+		isCDN := isEdge || PickCDNHost(in, client, settings, r.cdnPool) != ""
 		for _, v := range r.views(in, client) {
 			uri, err := BuildURIForClient(v.in, &client, v.host)
 			if err != nil || uri == "" {
@@ -482,8 +484,8 @@ func (r *Resolver) BuildBundleForClient(c *model.Client) ([]ShareLink, error) {
 			links = append(links, ShareLink{
 				URI:        uri,
 				ServerHost: r.realServerHost(in),
-				CDN:        isCDN || v.pool,
-				Argo:       isArgo,
+				CDN:        v.pool || (!v.argo && isCDN),
+				Argo:       v.argo,
 			})
 		}
 	}

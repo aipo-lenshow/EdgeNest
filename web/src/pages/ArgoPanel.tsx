@@ -16,6 +16,7 @@ import {
   TextArea,
   Toggle,
 } from "../components/ui";
+import ArgoOriginCard from "../components/ArgoOriginCard";
 
 interface AdvancedArgo {
   argo_enabled: boolean;
@@ -469,6 +470,10 @@ export default function ArgoPanel() {
             )}
           </Button>
         )}
+      </div>
+
+      <div className="mt-6">
+        <ArgoOriginCard argoDomain={data?.argo_domain ?? ""} />
       </div>
 
       <Modal
