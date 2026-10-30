@@ -1,7 +1,7 @@
 {
   "name": "edgenest-web",
   "private": true,
-  "version": "1.38.1031",
+  "version": "1.39.1031",
   "type": "module",
   "scripts": {
     "dev": "vite",
